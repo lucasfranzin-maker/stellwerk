@@ -6,6 +6,7 @@ Ohne Anmeldung: nur an localhost binden oder hinter einen Reverse-Proxy stellen.
 from __future__ import annotations
 
 import json
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -78,6 +79,11 @@ def make_handler(cfg: dict, outdir: str):
             if path == "/":
                 page = (resources.files("stellwerk") / "web" / "index.html").read_bytes()
                 self._send(200, page, "text/html; charset=utf-8")
+            elif re.fullmatch(r"/fonts/[a-z0-9-]+\.woff2", path):
+                f = resources.files("stellwerk") / "web" / "fonts" / path[7:]
+                if not f.is_file():
+                    return self._json(404, {"fehler": "Schrift nicht gefunden."})
+                self._send(200, f.read_bytes(), "font/woff2")
             elif path.startswith("/api/"):
                 self._api("GET")
             elif path == "/probieren":

@@ -79,11 +79,19 @@ The AI assists interface developers in analyzing unknown SQL schemas or HL7 feed
 
 ---
 
-## 7a. Workbench decisions (2026-11-14, supersede conflicting rules above)
-- Visual reference is the Emergent mockup v3 (design orientation only; its code, data and FHIR examples are not adopted): navy navigation `#0B1526`, **petrol** accent `#0E7490`, work areas as cards (10px radius, subtle panel shadow) on canvas `#F3F5F8`. Inside cards everything stays dense, hairline-separated and shadow-free (tables, JSON, mapping, tree). Mono for all data.
-- Tokens live as CSS custom properties at the top of `src/stellwerk/web/index.html`; they supersede the colour values in Section 3.
-- The workbench is **one HTML file without a build step** (`src/stellwerk/web/index.html`), served by the Python service. No CDN, no web fonts, no Node: it must run in an air-gapped hospital network. Icons are inline Lucide paths.
+## 7a. Visual system (2026-11-14, supersedes Sections 2–5 and the Emergent mockup where they conflict)
+The owner rejected the generic "AI-made SaaS" look. Do not drift back to it. Banned: tinted pill badges, rounded shadow cards on a grey canvas, navy sidebar with teal/indigo accents, Inter/Geist, all-caps eyebrow labels, strings joined with middle dots, decorative numbering.
+
+- **Type:** Barlow Semi Condensed for the interface (DIN-like signage character, dense), IBM Plex Mono only for real data (paths, codes, values, payloads). Both are bundled under `src/stellwerk/web/fonts/` (OFL) and served locally. No web fonts from the network.
+- **Surfaces:** three tones instead of cards: filing (steel `#E2E5E8`), source (`#EEF0F2`), work surface (white), output (dark `#17191C`). No panel shadows, no panel radius; controls have 3px radius. A 2px black rule under the header.
+- **Colour is signal only:** green `#00875A`, yellow `#E5A800`, red `#D4002A`, blue `#0057D9` (selection, proposals). Text is black. Primary action is a black button.
+- **State = lamp + word:** a 9px square in the signal colour followed by a plain word (`zugeordnet`, `Zu prüfen`). Proposals have a hollow blue lamp.
+- **Signature element:** every mapping row is a route from source to target: solid line with arrow = set, dashed blue = proposal, yellow stub with buffer stop = open, short grey stub = left out. Proposal rows carry a fine diagonal hatch, never a colour fill.
+- **Copy:** sentence case, plain German, no jargon for its own sake.
+- Tokens are CSS custom properties at the top of `src/stellwerk/web/index.html`.
+- The workbench is **one HTML file without a build step**, served by the Python service. No CDN, no Node: it must run in an air-gapped hospital network. Icons are inline SVG paths.
 - Layout: explorer tree (user-defined folders and tasks) | source | mapping | FHIR output. Model proposals appear inline in the mapping pane with Accept/Reject, never as chat.
+- Backlog: pipeline designer.
 
 ## 8. Engineering Principles (Pipeline)
 - **Never convert clinical values:** value and unit go into the bundle exactly as delivered (only number notation changes: `1,10` → `1.10`, trailing zeros kept via `fieldmap.dump_json`). Ambiguity (mixed units, `<0,6`, unknown codes) is reported, never resolved by the tool. Mapping proposals are never applied without an explicit accept.
