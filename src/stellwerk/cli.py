@@ -108,8 +108,55 @@ def cmd_discover(args, cfg) -> int:
         return _fail(str(exc))
     llm, _ = make_llm(cfg)
     res = discovery.analyse(schema, llm=llm)
+    res["abfragen"] = discovery.propose_queries(res)
+    discovery.verify_queries(args.db, res, res["abfragen"])
+    if args.abfragen:
+        print(discovery.render_queries(res["abfragen"]), end="")
+        return 1 if any(a["pruefen"] for a in res["abfragen"]) else 0
     print(json.dumps(res, ensure_ascii=False, indent=1) if args.json else discovery.render_text(res), end="")
     return 1 if res["zusammenfassung"]["ungeklaert"] or res["zusammenfassung"]["unsicher"] else 0
+
+
+def cmd_uebergabe(args, cfg) -> int:
+    from . import uebergabe
+    from .db import Store
+    from .workbench import ApiError, Workspace
+    store = Store(cfg["datenbank"])
+    store.migrate()
+    ws = Workspace(store)
+    if not args.aufgabe:
+        def zeigen(nodes, pfad):
+            for n in nodes:
+                if n["typ"] == "aufgabe":
+                    print(f"{n['id']:<14} {' / '.join(pfad + [n['name']])}")
+                zeigen(n.get("kinder") or [], pfad + [n["name"]])
+        zeigen(ws.tree()["kinder"], [])
+        return 0
+    try:
+        name, data = uebergabe.build_package(ws, args.aufgabe, cfg, args.mit_daten)
+    except ApiError as exc:
+        return _fail(str(exc))
+    ziel = Path(args.out or name)
+    ziel.write_bytes(data)
+    store.audit("kommandozeile", "uebergabe.erzeugt", args.aufgabe, "mit echten Zeilen (Patientendaten)" if args.mit_daten else "ohne Patientendaten")
+    print(f"Übergabepaket geschrieben: {ziel}" + ("  (enthält Patientendaten)" if args.mit_daten else ""))
+    return 0
+
+
+def cmd_vergleichen(args, cfg) -> int:
+    from . import uebergabe
+    try:
+        soll, ist = (uebergabe.load_bundle(Path(p).read_bytes()) for p in (args.erwartet, args.geliefert))
+    except (OSError, ValueError) as exc:
+        return _fail(f"Datei nicht lesbar: {exc}")
+    unterschiede = uebergabe.compare(soll, ist)
+    if not unterschiede:
+        print("Gleich. Reihenfolge der Einträge und fullUrl wurden nicht verglichen.")
+        return 0
+    print(f"{len(unterschiede)} Abweichung(en):")
+    for u in unterschiede:
+        print("  " + u)
+    return 1
 
 
 def cmd_doctor(args, cfg) -> int:
@@ -123,7 +170,7 @@ def cmd_doctor(args, cfg) -> int:
 
     print(f"Stellwerk {__version__}")
     print(f"  ✓ Konfiguration    {cfg.get('_datei') or 'keine stellwerk.yaml gefunden, Vorgaben aktiv'}")
-    unset = [k for k, v in cfg["systeme"].items() if not v]
+    unset = [k for k, v in cfg["systeme"].items() if not v and k != "auftrag"]     # auftrag braucht nur das Feld-Mapping
     line(not unset, "Namensräume", "eingestellt" if not unset else f"fehlen für: {', '.join(unset)}",
          "In stellwerk.yaml unter systeme eintragen. Bis dahin stehen Platzhalter im Bundle und jedes Dokument ist „zu prüfen“.")
     line(True, "Vorlagen", ", ".join(list_templates()))
@@ -276,7 +323,17 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("db", help="Datenbankadresse, z. B. sqlite:///kis.db")
     e.add_argument("--json", action="store_true", help="Ergebnis als JSON ausgeben")
     e.add_argument("--ohne-werte", action="store_true", help="nur das Schema lesen, keine Zeilen")
+    e.add_argument("--abfragen", action="store_true", help="fertige SELECT-Vorschläge ausgeben (mit Verknüpfung zu Fall und Patient)")
     e.set_defaults(fn=cmd_discover)
+    ue = sub.add_parser("uebergabe", help="Übergabepaket einer Aufgabe für den Kommunikationsserver schreiben")
+    ue.add_argument("aufgabe", nargs="?", help="Kennung der Aufgabe; ohne Angabe werden die Aufgaben aufgelistet")
+    ue.add_argument("--out", help="Zieldatei (Vorgabe: uebergabe-<Name>.zip)")
+    ue.add_argument("--mit-daten", action="store_true", help="echte Zeilen als zusätzliche Testfälle beilegen (Patientendaten)")
+    ue.set_defaults(fn=cmd_uebergabe)
+    vg = sub.add_parser("vergleichen", help="geliefertes Bundle mit dem erwarteten aus einem Übergabepaket vergleichen")
+    vg.add_argument("erwartet", help="erwartet.json aus dem Paket")
+    vg.add_argument("geliefert", help="Bundle, das der Kommunikationsserver erzeugt hat")
+    vg.set_defaults(fn=cmd_vergleichen)
     d = sub.add_parser("doctor", help="Einrichtung prüfen: Texterkennung, lokales Modell, Konfiguration")
     d.set_defaults(fn=cmd_doctor)
     bl = sub.add_parser("bridgelink", help="BridgeLink-Kanal ausgeben, einrichten oder prüfen")

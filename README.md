@@ -41,7 +41,9 @@ Rückgabewert: `0` OK, `1` zu prüfen, `2` Fehler.
 - **Kopfdaten:** Werte aus der Quelle je Aufgabe überschreiben.
 - **Spaltenliste mit Profil:** Im Feld-Mapping zeigt die Quelle jede Spalte mit Zuordnungsstand; ein Klick zeigt Leeranteil, Anzahl verschiedener Werte und die häufigsten Werte (über die gelesenen Zeilen).
 - **Feld-Mapping (SQL):** Spalten einer Abfrage auf `Patient` und `Observation` abbilden. Vorschläge nach Spaltennamen (und optional vom lokalen Modell) stehen als eigene Zeile mit Begründung und werden erst nach „Übernehmen“ wirksam.
+- **Abfragen vorschlagen (SQL):** Stellwerk liest das Schema und schlägt fertige `SELECT`-Abfragen vor, bei Bedarf mit Verknüpfung zu Fall und Patient. Vermutete Verknüpfungen sind markiert.
 - **Ausgabe:** Bundle laden oder in den Abholordner des Kommunikationsservers legen.
+- **Übergabepaket:** Abfrage, Zuordnung, Regeln und Testfälle als ZIP für den Administrator von Cloverleaf, BridgeLink oder Mirth. Siehe [docs/uebergabe.md](docs/uebergabe.md).
 
 Projekte und Quelldateien liegen im Ordner `arbeitsbereich/` auf dem Rechner, auf dem der Dienst läuft.
 Die einfache Upload-Seite gibt es weiter unter `/probieren`.
@@ -88,7 +90,8 @@ stellwerk discover sqlite:///beispiele/kis.db
 Liest das ganze Schema (nur lesend), schlägt je Spalte eine Bedeutung mit Begründung vor, zeigt zusammengehörige Felder
 (Wert und Einheit, Angaben zur Person, Abschnitte eines Dokuments) und Beziehungen zwischen Tabellen. Was nicht sicher
 erkennbar ist, bleibt „ungeklärt“; Entscheidungen von Hand werden gespeichert und haben Vorrang.
-Getestet nur mit SQLite. Eine Oberfläche dafür gibt es noch nicht (`POST /api/erschliessen`).
+Mit `--abfragen` gibt es fertige `SELECT`-Vorschläge aus (in der Workbench: „Abfragen vorschlagen“).
+Getestet nur mit SQLite. Für Bedeutungen und Beziehungen gibt es noch keine Oberfläche (`POST /api/erschliessen`).
 
 ## Sprachmodell
 
@@ -137,6 +140,8 @@ und Prüf-Bundles in eine Prüfablage leitet, mit Warteschlange und Wiederholung
 - Das Feld-Mapping kennt eine feste Liste von Zielfeldern (Patient, Fallbezug, Laborwert mit LOINC, Einheit, Zeitpunkt) und erzeugt je Zeile eine Transaktion. Es gibt kein freies Regelwerk, keinen Terminologieserver und keine MII-Profilangabe.
 - Werte werden nie umgerechnet. Nicht-numerische Werte wie `<0,6` stehen als Text im Bundle; gemischte Einheiten werden gemeldet.
 - Die LOINC-Vorschlagsliste ist klein (neun Laborwerte) und nicht gegen eine aktuelle LOINC-Version geprüft.
+- Das Übergabepaket ist neutral: Es erzeugt keinen fertigen Cloverleaf-Thread und keinen BridgeLink-Kanal je Schnittstelle. Die Umsetzung dort ist Handarbeit nach den Regeln im Paket.
+- Das Feld-Mapping erwartet je Messgröße eine Spalte. Zeilenweise gespeicherte Laborwerte (eine Zeile je Analyt) muss die Abfrage selbst in Spalten bringen.
 - Für Mirth gibt es keinen eigenen Export; es bekommt dasselbe FHIR-Bundle über Abholordner oder HTTP. BridgeLink 26.9.0 ist mit eigenem Kanal angebunden und getestet; der Kanal-Eingang hat kein TLS (siehe docs/bridgelink.md).
 
 ## Datenschutz

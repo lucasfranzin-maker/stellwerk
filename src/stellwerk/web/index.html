@@ -119,6 +119,10 @@ table.t{border-collapse:collapse;width:100%;font:12.5px var(--mono)}table.t th{p
 table.t td{padding:5px 10px;border-bottom:1px solid var(--line);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}table.t tr:hover td{background:var(--hover)}
 .empty{flex:1;display:grid;place-items:center;text-align:left;color:var(--mut);padding:24px}.empty>div{max-width:44ch}.empty b{display:block;color:var(--ink);font-size:28px;font-weight:600;line-height:1.1;margin-bottom:8px}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
+/* Ankreuzfeld, Vorschläge für Abfragen */
+.chk{display:flex;align-items:center;gap:8px;margin:0 0 10px;cursor:pointer}.chk input{width:15px;height:15px;margin:0;accent-color:var(--ink);cursor:pointer}
+.vs{padding:10px 14px;border-bottom:1px solid var(--line)}.vs ul{margin:6px 0 0;padding-left:18px;color:var(--mut)}.vs li{margin:2px 0}
+.vs pre{margin:8px 0;padding:8px 10px;background:var(--field);border:1px solid var(--line);font:12px/1.5 var(--mono);max-height:230px;overflow:auto;white-space:pre}
 .toast{position:fixed;right:16px;bottom:44px;max-width:440px;padding:10px 14px;background:var(--ink);color:var(--paper);font-weight:500;box-shadow:0 6px 20px rgba(0,0,0,.25);display:flex;gap:9px;align-items:baseline}
 .toast::before{content:"";width:9px;height:9px;flex:none;background:var(--rot)}.toast.ok::before{background:var(--gruen)}
 @media (max-width:980px){#app{grid-template-columns:1fr;height:auto}aside{max-height:40vh}.panes{grid-template-columns:1fr;grid-auto-rows:minmax(320px,auto)}.split{display:none}}
@@ -145,7 +149,8 @@ const ICON = {
   up:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
   trash:'<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   pen:'<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>',
-  check:'<path d="M20 6 9 17l-5-5"/>', x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>', send:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>'
+  check:'<path d="M20 6 9 17l-5-5"/>', x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>', send:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>'
 };
 const icon = n => { const t = document.createElement('template'); t.innerHTML = `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICON[n]}</svg>`; return t.content.firstChild; };
 function h(tag, attrs, ...kids) {
@@ -203,13 +208,30 @@ function drawTree() {
 }
 
 /* ---------- Aufgabe ---------- */
-async function openTask(id) { S.sel = id; S.lauf = null; S.task = null; S.tabM = 'zuordnung'; S.tabO = 'json'; drawTree(); drawMain(); try { S.task = await api('GET', 'aufgabe/' + id); drawMain(); if (S.task.quelle || (S.task.art === 'sql' && S.task.abfrage)) run(); } catch (e) { toast(e.message); } }
+async function openTask(id) { S.sel = id; S.lauf = null; S.task = null; S.tabM = 'zuordnung'; S.tabO = 'json'; S.erschl = null; S.paketDaten = false; drawTree(); drawMain(); try { S.task = await api('GET', 'aufgabe/' + id); drawMain(); if (S.task.quelle || (S.task.art === 'sql' && S.task.abfrage)) run(); } catch (e) { toast(e.message); } }
 async function saveTask() { const { quelle, ...t } = S.task; S.task = await api('PUT', 'aufgabe/' + S.sel, t); }
 async function run() {
   if (S.busy) return; S.busy = true; drawMain();
   try { await saveTask(); S.lauf = await api('POST', 'aufgabe/' + S.sel + '/lauf'); }
   catch (e) { S.lauf = null; toast(e.message); }
   S.busy = false; drawMain();
+}
+async function paket() {
+  const daten = !!S.paketDaten;
+  try { await saveTask();
+    const r = await fetch('/api/aufgabe/' + S.sel + '/uebergabe' + (daten ? '?daten=1' : ''));
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.fehler || 'Fehler ' + r.status); }
+    const name = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || 'uebergabe.zip';
+    const a = h('a', { href: URL.createObjectURL(await r.blob()), download: name }); document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    toast('Übergabepaket geladen: ' + name + (daten ? '. Es enthält Patientendaten.' : ''), 'ok');
+  } catch (e) { toast(e.message); }
+}
+async function vorschlagen(db) {
+  if (!db.trim()) { toast('Erst die Datenbankadresse eintragen.'); return; }
+  S.task.db = db; S.erschl = { laeuft: true }; drawMain();
+  try { await saveTask(); const r = await api('POST', 'erschliessen', { db }); S.erschl = { abfragen: r.abfragen, z: r.zusammenfassung }; }
+  catch (e) { S.erschl = null; toast(e.message); }
+  drawMain();
 }
 async function upload(file) { try { S.task = await api('POST', 'aufgabe/' + S.sel + '/quelle?name=' + encodeURIComponent(file.name), file, true); run(); } catch (e) { toast(e.message); } }
 function setAlias(heading, key) { S.task.aliase = { ...S.task.aliase, [heading]: key }; run(); }
@@ -235,7 +257,22 @@ function paneSource() {
     const db = h('input', { class: 'in', value: t.db, placeholder: 'sqlite:///pfad/kis.db oder oracle+oracledb://nutzer:${STELLWERK_DB_KIS}@host/…', title: 'Passwörter nie direkt eintragen: Platzhalter ${STELLWERK_DB_…} verwenden und den Wert als Umgebungsvariable des Dienstes setzen.', onchange: () => { t.db = db.value; } });
     const q = h('textarea', { class: 'in', value: t.abfrage, placeholder: 'SELECT DOKNR, PATNR, FALLNR, DIAGNOSEN, ... FROM ...', spellcheck: false, onchange: () => { t.abfrage = q.value; } });
     const ms = h('select', { class: 'in', onchange: () => { t.modus = ms.value; t.dokument = 0; S.lauf = null; run(); } }, [['dokument', 'Dokument: Textspalten → Composition'], ['felder', 'Felder: Spalten → Patient, Observation']].map(([k, l]) => h('option', { value: k, selected: t.modus === k }, l)));
-    body.append(h('div', { class: 'pad', style: 'display:grid;gap:8px;border-bottom:1px solid var(--line)' }, h('label', { class: 'f' }, 'Datenbank', db), h('label', { class: 'f' }, 'Abfrage (nur SELECT)', q), h('label', { class: 'f' }, 'Ergebnis verarbeiten als', ms)));
+    const E = S.erschl;
+    body.append(h('div', { class: 'pad', style: 'display:grid;gap:8px;border-bottom:1px solid var(--line)' }, h('label', { class: 'f' }, 'Datenbank', db),
+      h('div', { class: 'row', style: 'align-items:center' }, h('button', { class: 'btn sm', disabled: !!(E && E.laeuft), onclick: () => vorschlagen(db.value) }, icon('search'), E && E.laeuft ? 'Liest das Schema …' : 'Abfragen vorschlagen'),
+        h('span', { class: 'mut', style: 'font-size:13px' }, 'Liest Tabellen und Beziehungen, nur lesend.')),
+      h('label', { class: 'f' }, 'Abfrage (nur SELECT)', q), h('label', { class: 'f' }, 'Ergebnis verarbeiten als', ms)));
+    if (E && E.abfragen) {
+      body.append(h('div', { class: 'vs' }, h('div', { class: 'row', style: 'justify-content:space-between;align-items:center' }, h('b', {}, 'Vorschläge aus dem Schema'),
+          h('button', { class: 'ib', 'aria-label': 'Vorschläge schließen', title: 'Schließen', onclick: () => { S.erschl = null; drawMain(); } }, icon('x'))),
+        h('div', { class: 'mut', style: 'font-variant-numeric:tabular-nums' }, `${E.z.tabellen} Tabellen, ${E.z.spalten} Spalten gelesen, ${E.z.ungeklaert} ungeklärt. ${E.z.beziehungen} Beziehungen, davon ${E.z.vermutet} vermutet.`),
+        E.abfragen.length ? null : h('p', { style: 'margin:6px 0 0' }, 'Keine Tabelle mit Messwerten oder Dokumenten erkannt. Die Abfrage von Hand schreiben.')));
+      E.abfragen.forEach(a => body.append(h('div', { class: 'vs' },
+        h('div', { class: 'row', style: 'justify-content:space-between;align-items:center' }, h('b', {}, a.name), h('span', { class: 'tag ' + (a.pruefen ? 'pruefen' : 'ok') }, a.pruefen ? 'Zu prüfen' : 'Ohne offene Punkte')),
+        h('div', { class: 'mut', style: 'font-variant-numeric:tabular-nums' }, (a.zeilen == null ? '' : a.zeilen + (a.zeilen === 1 ? ' Zeile. ' : ' Zeilen. ')) + (a.verknuepfungen.length ? 'Verknüpft mit ' + a.verknuepfungen.map(v => v.tabelle).join(', ') + '.' : 'Ohne Verknüpfung.')),
+        h('ul', {}, a.hinweise.map(x => h('li', {}, x))), h('pre', { tabIndex: 0 }, a.sql),
+        h('button', { class: 'btn sm', onclick: () => { t.abfrage = a.sql; t.modus = a.modus; t.dokument = 0; S.erschl = null; S.lauf = null; run(); } }, icon('check'), t.abfrage.trim() ? 'Abfrage ersetzen' : 'Abfrage übernehmen'))));
+    }
     if (L && L.modus === 'felder') schemaPane(body);
     else if (L && L.roh.spalten) body.append(h('div', { class: 'pad mut' }, `${L.roh.gesamt} Zeilen gelesen` + (L.roh.gesamt > 50 ? ', 50 gezeigt' : '') + '.'),
       h('table', { class: 't' }, h('thead', {}, h('tr', {}, L.roh.spalten.map(c => h('th', {}, c)))), h('tbody', {}, L.roh.zeilen.map(r => h('tr', {}, r.map(c => h('td', { title: c }, c)))))));
@@ -351,7 +388,9 @@ function paneOut() {
     else body.append(h('div', { class: 'pad' }, h('span', { class: 'tag fehler' }, 'Kein Bundle'), h('p', { class: 'mut' }, 'Erst die Fehler unter „Befunde“ beheben.')));
   } else {
     const fh = L.befunde.filter(b => b.code.startsWith('FHIR_'));
-    body.append(h('div', { class: 'pad' }, h('span', { class: 'tag ' + (fh.length || !L.bundle ? 'fehler' : 'ok') }, fh.length || !L.bundle ? 'Profilregeln verletzt oder kein Bundle' : 'Eingebaute Profilregeln erfüllt'),
+    if (L.modus === 'felder') body.append(h('div', { class: 'pad' }, h('span', { class: 'tag ' + (L.bundle ? 'info' : 'fehler') }, L.bundle ? 'Kein FHIR-Profil geprüft' : 'Kein Bundle'),
+      h('p', { class: 'mut' }, 'Bei Messwerten prüft Stellwerk die Zuordnung (siehe Befunde), aber kein FHIR-Profil. Vor dem Einsatz mit dem offiziellen Validator gegen das Profil des Zielsystems prüfen.')));
+    else body.append(h('div', { class: 'pad' }, h('span', { class: 'tag ' + (fh.length || !L.bundle ? 'fehler' : 'ok') }, fh.length || !L.bundle ? 'Profilregeln verletzt oder kein Bundle' : 'Eingebaute Profilregeln erfüllt'),
       h('p', { class: 'mut' }, 'Geprüft werden die Regeln aus ISiKBerichtBundle und ISiKBerichtSubSysteme, die Stellwerk selbst kennt. Das ersetzt nicht den offiziellen FHIR-Validator.'),
       fh.map(b => h('p', {}, h('span', { class: 'wo mono' }, b.wo), ': ', b.meldung))));
     const Z = S.zustellung || {};
@@ -369,6 +408,13 @@ function paneOut() {
     body.append(h('div', { class: 'pad', style: 'border-top:1px solid var(--line)' }, h('label', { class: 'f' }, 'Abholordner des Kommunikationsservers (Cloverleaf, BridgeLink, Mirth)', o),
       h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'btn', disabled: !L.bundle, onclick: async () => { try { t.ablage = o.value; await saveTask(); const r = await api('POST', 'aufgabe/' + S.sel + '/ablegen', { ordner: o.value }); toast('Abgelegt: ' + r.datei, 'ok'); } catch (e) { toast(e.message); } } }, icon('send'), 'Bundle ablegen')),
       L.status === 'pruefen' ? h('p', { class: 'mut' }, 'Hinweis: Es gibt offene Prüfpunkte. Ablegen ist trotzdem möglich und Ihre Entscheidung.') : null));
+    const cb = h('input', { type: 'checkbox', checked: !!S.paketDaten, onchange: () => { S.paketDaten = cb.checked; drawMain(); } }), feld = L.modus === 'felder';
+    body.append(h('div', { class: 'pad', style: 'border-top:1px solid var(--line)' }, h('div', { class: 'f' }, 'Übergabepaket für den Kommunikationsserver'),
+      h('p', { class: 'mut', style: 'margin:3px 0 10px' }, feld ? 'Abfrage, Zuordnung, Regeln und erfundene Testfälle als ZIP. Damit lässt sich die Schnittstelle in Cloverleaf, BridgeLink oder Mirth nachbauen und gegenprüfen.'
+                                                               : 'Aufruf und Vorlage als ZIP. Text lesen und Abschnitte zuordnen bleibt bei Stellwerk; der Kommunikationsserver reicht die Rohdaten durch.'),
+      h('label', { class: 'chk' }, cb, feld ? 'Echte Zeilen als weitere Testfälle beilegen' : 'Quelldatei und Bundle beilegen'),
+      S.paketDaten ? h('p', { style: 'margin:0 0 10px' }, h('span', { class: 'tag pruefen' }, 'Das Paket enthält dann Patientendaten.'), ' Nur dort ablegen und weitergeben, wo das erlaubt ist.') : null,
+      h('div', { class: 'row' }, h('button', { class: 'btn', onclick: paket }, icon('down'), 'Übergabepaket laden'))));
   }
   return h('section', { class: 'pane out', 'aria-label': 'FHIR-Ausgabe' }, h('div', { class: 'ph' }, tabs(S.tabO, [['json', 'Bundle.json'], ['val', 'Prüfung und Ablage']], k => S.tabO = k)), body);
 }

@@ -302,4 +302,7 @@ def discover(ws: Workspace, cfg: dict, db: str, entscheidungen: dict | None) -> 
         schema = discovery.crawl(db, with_values=True)
     except discovery.DiscoveryError as exc:
         raise ApiError(400, str(exc)) from exc
-    return discovery.analyse(schema, ent, llm)
+    res = discovery.analyse(schema, ent, llm)
+    res["abfragen"] = discovery.propose_queries(res)
+    discovery.verify_queries(db, res, res["abfragen"])
+    return res

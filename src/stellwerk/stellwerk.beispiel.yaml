@@ -5,6 +5,7 @@ systeme:
   patient:    # z. B. https://fhir.klinikum-musterstadt.example/sid/patientennummer
   fall:       # z. B. https://fhir.klinikum-musterstadt.example/sid/aufnahmenummer
   dokument:   # z. B. https://fhir.klinikum-musterstadt.example/sid/dokumentnummer
+  auftrag:    # z. B. https://fhir.klinikum-musterstadt.example/sid/laborauftrag  (nur für Messwerte aus dem Feld-Mapping)
 
 # Vorlage, wenn die Quelle keinen Dokumenttyp nennt, und Zuordnung Dokumenttyp -> Vorlage.
 vorlage: entlassbrief

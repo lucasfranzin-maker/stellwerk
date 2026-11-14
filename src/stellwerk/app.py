@@ -235,6 +235,13 @@ def create_app(cfg: dict, store: Store | None = None) -> FastAPI:
         return Response(data, media_type="application/fhir+json; charset=utf-8",
                         headers={"Content-Disposition": 'attachment; filename="bundle.json"'})
 
+    @app.get("/api/aufgabe/{tid}/uebergabe")
+    def uebergabe_paket(tid: str, request: Request, daten: int = 0):
+        from . import uebergabe
+        name, data = uebergabe.build_package(ws, tid, cfg, bool(daten))
+        store.audit(wer(request), "uebergabe.erzeugt", tid, "mit echten Zeilen (Patientendaten)" if daten else "ohne Patientendaten")
+        return Response(data, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
     @app.post("/api/erschliessen")
     async def erschliessen(request: Request):
         b = await json_body(request)

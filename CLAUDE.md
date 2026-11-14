@@ -101,6 +101,8 @@ The owner rejected the generic "AI-made SaaS" look. Do not drift back to it. Ban
 - Login via **OIDC / Active Directory** with roles; no local password store.
 - LLM access may go through a gateway that shields clinic-to-cloud traffic; see `docs/anforderungen.md`.
 - Routing via BridgeLink: `bridgelink.py` generates the channel XML (tested against BridgeLink 26.9.0) and talks to its REST API; routing headers `X-Stellwerk-*` never carry patient data. See `docs/bridgelink.md`.
+- **Stellwerk is the design tool, the communication server is the runtime** (owner's picture, 2026-11-14): discovery proposes SELECTs (`discovery.propose_queries`, joins only towards master data, always LEFT JOIN, guessed joins marked), the admin takes the result over as a handover package (`uebergabe.py`, `docs/uebergabe.md`). Documents (PDF/OCR, sections) stay with Stellwerk at runtime.
+- The handover package contains no rows or single values from the source unless explicitly requested (`mit_daten`); every package is written to the audit log. The rules in its `LIESMICH.md` must describe `fieldmap.build` exactly: `tests/nachbau.js` rebuilds the bundles from the package alone, so change rules and `build` together.
 - Status and order of work: `docs/anforderungen.md`.
 
 ## 8. Engineering Principles (Pipeline)

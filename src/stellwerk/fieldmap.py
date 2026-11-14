@@ -135,7 +135,7 @@ def build(columns: list[str], rows: list[tuple], rules: dict, cfg: dict, status:
     used = ["patient"] + (["fall"] if one("fall.id") else []) + (["auftrag"] if one("auftrag.id") else [])
     unset = [k for k in used if not sys.get(k)]
     for k in unset:
-        sys[k] = PLATZHALTER.get(k, "https://example.org/fhir/sid/auftragsnummer")
+        sys[k] = PLATZHALTER[k]
     if unset:
         f.append(Finding("CFG_SYSTEME", PRUEFEN, "stellwerk.yaml",
                          f"Für {', '.join(unset)} ist kein Namensraum eingestellt. Im Bundle stehen Platzhalter (example.org).",
@@ -156,7 +156,7 @@ def build(columns: list[str], rows: list[tuple], rules: dict, cfg: dict, status:
     offen = [c for c in columns if c not in rules]
     if offen:
         f.append(Finding("MAP_OFFEN", PRUEFEN, "Zuordnung",
-                         f"{zahl(len(offen), 'Spalte ist', 'Spalten sind')} nicht zugeordnet und fehlen im Bundle: {', '.join(offen)}.",
+                         f"{zahl(len(offen), 'Spalte ist nicht zugeordnet und fehlt', 'Spalten sind nicht zugeordnet und fehlen')} im Bundle: {', '.join(offen)}.",
                          "Zuordnen oder bewusst auf „nicht übernehmen“ stellen."))
     if any(x.severity == FEHLER for x in f):
         return [None] * len(rows), f, [f"Zeile {n}" for n in range(1, len(rows) + 1)]

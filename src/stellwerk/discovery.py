@@ -144,7 +144,8 @@ def analyse(schema: dict, entscheidungen: dict | None = None, llm=None) -> dict:
             if key in ent:
                 col.update(bedeutung=ent[key], sicherheit="hoch", begruendung="Von Hand festgelegt", quelle="mensch")
             cols.append(col)
-        tables.append({"name": t["name"], "zeilen": t["zeilen"], "spalten": cols, "fremdschluessel": t["fremdschluessel"]})
+        tables.append({"name": t["name"], "zeilen": t["zeilen"], "stichprobe": len(rows), "spalten": cols,
+                       "fremdschluessel": t["fremdschluessel"]})
 
     # --- Ungeklärtes optional dem Modell vorlegen (nur aus der Liste der bekannten Bedeutungen)
     offen = [(t, c) for t in tables for c in t["spalten"] if c["bedeutung"] == UNGEKLAERT]
@@ -239,3 +240,160 @@ def render_text(res: dict) -> str:
         L.append("Beziehungen")
         L += [f"  {b['von']} → {b['nach']}  ({b['art']}, {b['sicherheit']}): {b['begruendung']}" for b in res["beziehungen"]]
     return "\n".join(L).rstrip() + "\n"
+
+
+# --------------------------------------------------------------------------
+# Abfragen vorschlagen
+# --------------------------------------------------------------------------
+
+_STAMM = ("Patientenstamm", "Fälle")
+_WUNSCH = ("patient_id", "nachname", "vorname", "geburtsdatum", "geschlecht", "fall_id", "fallart")
+_RESERVIERT = {"user", "order", "group", "table", "select", "from", "where", "date", "comment", "index", "key", "level", "size",
+               "number", "type", "value", "values", "start", "end", "desc", "asc", "by", "to", "in", "is", "as", "on", "or", "and", "not"}
+_RANG = {"hoch": 0, "mittel": 1, "niedrig": 2, "": 3}
+
+
+def _q(name: str) -> str:
+    """Bezeichner nur dann in Anführungszeichen setzen, wenn es nötig ist (Oracle unterscheidet dann Groß- und Kleinschreibung)."""
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$#]*", name) and name.lower() not in _RESERVIERT:
+        return name
+    return '"' + name.replace('"', '""') + '"'
+
+
+def propose_queries(res: dict) -> list[dict]:
+    """Je Tabelle mit Messwerten oder Dokumenten ein fertiges SELECT, bei Bedarf mit Verknüpfung zu Fall und Patient.
+
+    Verknüpft wird nur in Richtung Stammdaten und mit LEFT JOIN: keine Zeile der Ausgangstabelle geht verloren.
+    Vermutete Verknüpfungen stehen als solche im SQL und machen den Vorschlag „zu prüfen“."""
+    tabs = {t["name"]: t for t in res["tabellen"]}
+    kanten: dict[str, list[tuple[str, str, str, dict]]] = {}
+    for b in res["beziehungen"]:
+        (ta, ca), (tb, cb) = b["von"].rsplit(".", 1), b["nach"].rsplit(".", 1)
+        kanten.setdefault(ta, []).append((ca, tb, cb, b))
+        kanten.setdefault(tb, []).append((cb, ta, ca, b))
+    out = []
+    for t in res["tabellen"]:
+        if t["klasse"] not in ("Messwerte", "Dokumente"):
+            continue
+        hat = {c["bedeutung"] for c in t["spalten"]}
+        fehlt = [w for w in _WUNSCH if w not in hat]
+        # Breitensuche über Stammtabellen, höchstens zwei Schritte weit
+        eltern: dict[str, tuple[str, str, str, dict] | None] = {t["name"]: None}      # Tabelle -> (von, von_spalte, eigene_spalte, Beziehung)
+        reihenfolge, rand = [], [t["name"]]
+        for _ in range(2):
+            neu = []
+            for name in rand:
+                for c_own, other, c_other, b in sorted(kanten.get(name, []), key=lambda k: (k[3]["art"] != "Fremdschlüssel", _RANG[k[3]["sicherheit"]])):
+                    if other not in eltern and tabs[other]["klasse"] in _STAMM:
+                        eltern[other] = (name, c_own, c_other, b)
+                        reihenfolge.append(other)
+                        neu.append(other)
+            rand = neu
+        liefert: dict[str, list[dict]] = {}
+        offen = list(fehlt)
+        for name in reihenfolge:
+            cols = []
+            for c in tabs[name]["spalten"]:
+                if c["bedeutung"] in offen:
+                    offen.remove(c["bedeutung"])
+                    cols.append(c)
+            if cols:
+                liefert[name] = cols
+        gebraucht: list[str] = []
+        for name in liefert:                                   # auch die Tabellen auf dem Weg dorthin
+            kette = []
+            while name != t["name"]:
+                kette.append(name)
+                name = eltern[name][0]
+            for k in reversed(kette):
+                if k not in gebraucht:
+                    gebraucht.append(k)
+        alias: dict[str, str] = {}
+        for name in [t["name"], *gebraucht]:
+            kurz = re.sub(r"[^a-z]", "", name.rsplit(".", 1)[-1].lower())[:1] or "t"
+            a, n = kurz, 2
+            while a in alias.values() or a in _RESERVIERT:
+                a, n = f"{kurz}{n}", n + 1
+            alias[name] = a
+        namen: set[str] = set()
+        zeilen_sql = []
+        for name in [t["name"], *gebraucht]:
+            for c in (t["spalten"] if name == t["name"] else liefert.get(name, [])):
+                ausdruck = f"{alias[name]}.{_q(c['name'])}"
+                if c["name"].lower() in namen:
+                    ausdruck += " AS " + _q(f"{name.rsplit('.', 1)[-1]}_{c['name']}")
+                namen.add(c["name"].lower())
+                zeilen_sql.append(ausdruck)
+        verkn, hinweise, teile = [], [], []
+        von_sql = [f"FROM {_q(t['name'])} {alias[t['name']]}"]
+        sql = [f"-- Vorschlag von Stellwerk: {t['klasse']} aus {t['name']}" + (f" mit {', '.join(gebraucht)}" if gebraucht else ""),
+               "-- Nur lesend." + (" Verknüpfungen stehen als LEFT JOIN, damit keine Zeile verloren geht." if gebraucht else ""),
+               "SELECT", ",\n".join("  " + z for z in zeilen_sql), f"FROM {_q(t['name'])} {alias[t['name']]}"]
+        for name in gebraucht:
+            von, c_von, c_own, b = eltern[name]
+            vermutet = b["art"] != "Fremdschlüssel"
+            on = f"{alias[name]}.{_q(c_own)} = {alias[von]}.{_q(c_von)}"
+            sql += ["-- " + (f"VERMUTET ({b['sicherheit']}), bitte prüfen:" if vermutet else "erklärter Fremdschlüssel:"),
+                    f"LEFT JOIN {_q(name)} {alias[name]} ON {on}"]
+            von_sql.append(f"LEFT JOIN {_q(name)} {alias[name]} ON {on}")
+            teile.append((name, f"{alias[name]}.{_q(c_own)} IS NULL AND {alias[von]}.{_q(c_von)} IS NOT NULL"))
+            verkn.append({"tabelle": name, "ueber": on, "art": b["art"], "sicherheit": b["sicherheit"], "begruendung": b["begruendung"]})
+            if vermutet:
+                hinweise.append(f"Die Verknüpfung mit {name} ({on}) ist vermutet: {b['begruendung']}. Am Datenmodell oder mit dem Hersteller prüfen.")
+            ziel = next(c for c in tabs[name]["spalten"] if c["name"] == c_own)
+            n = tabs[name]["stichprobe"] - (ziel["leer"] or 0) if tabs[name]["stichprobe"] else 0
+            if not ziel["pk"] and n and ziel["verschieden"] is not None and ziel["verschieden"] < n:
+                hinweise.append(f"{name}.{c_own} ist in der Stichprobe nicht eindeutig ({ziel['verschieden']} verschiedene Werte in {n} Zeilen). "
+                                "Die Verknüpfung kann Zeilen vervielfachen.")
+        if "patient_id" in offen:
+            hinweise.append("Die Abfrage liefert keine Patientennummer. Ohne sie entsteht kein Bundle; die Tabelle mit der Patientennummer von Hand verknüpfen.")
+        unklar = [c["name"] for c in t["spalten"] if c["bedeutung"] == UNGEKLAERT]
+        if unklar:
+            hinweise.append(f"Bedeutung ungeklärt: {', '.join(unklar)}. Die Spalten stehen in der Abfrage; in der Zuordnung entscheiden, ob sie gebraucht werden.")
+        neu_krit = [c["name"] for c in t["spalten"] if c["bedeutung"] in ("zeitpunkt", "auftrag_id", "dokument_id")]
+        hinweise.append("Für den laufenden Betrieb ein Kriterium für neue Zeilen ergänzen"
+                        + (f" (Kandidaten: {', '.join(neu_krit)})" if neu_krit else "")
+                        + ". Als Text gespeicherte Datumswerte lassen sich nicht zuverlässig vergleichen.")
+        out.append({"name": f"{t['klasse']} aus {t['name']}", "tabelle": t["name"], "klasse": t["klasse"],
+                    "modus": "felder" if t["klasse"] == "Messwerte" else "dokument", "sql": "\n".join(sql) + "\n",
+                    "verknuepfungen": verkn, "hinweise": hinweise,
+                    "pruefen": any(v["art"] != "Fremdschlüssel" for v in verkn) or "patient_id" in offen, "zeilen": None,
+                    "_teile": ("\n".join(von_sql), teile)})
+    return out
+
+
+def verify_queries(db: str, res: dict, abfragen: list[dict]) -> None:
+    """Jeden Vorschlag einmal zählen lassen: läuft er, und liefert er so viele Zeilen wie die Ausgangstabelle?"""
+    from .sqlsource import SqlError, run_query
+    soll = {t["name"]: t["zeilen"] for t in res["tabellen"]}
+    for a in abfragen:
+        von_sql, teile = a.pop("_teile", ("", []))
+        try:
+            _, rows = run_query(db, f"SELECT COUNT(*) AS n FROM (\n{a['sql']}) q")
+            a["zeilen"] = int(rows[0][0])
+            for name, bedingung in teile:                      # Zeilen, die in der Stammtabelle keinen Partner finden
+                _, rows = run_query(db, f"SELECT COUNT(*) AS n {von_sql} WHERE {bedingung}")
+                if int(rows[0][0]):
+                    a["pruefen"] = True
+                    a["hinweise"].insert(0, f"{int(rows[0][0])} von {a['zeilen']} Zeilen finden keinen Eintrag in {name}. "
+                                            "Sie bleiben in der Ausgabe, aber ohne die Angaben von dort.")
+        except (SqlError, ValueError, IndexError, TypeError) as exc:
+            a["pruefen"] = True
+            a["hinweise"].insert(0, f"Die Datenbank hat die Abfrage nicht angenommen: {exc}")
+            continue
+        if a["zeilen"] != soll[a["tabelle"]]:
+            a["pruefen"] = True
+            a["hinweise"].insert(0, f"Die Abfrage liefert {a['zeilen']} Zeilen, {a['tabelle']} hat {soll[a['tabelle']]}. "
+                                    "Eine Verknüpfung vervielfacht Zeilen; die Beziehung prüfen.")
+
+
+def render_queries(abfragen: list[dict]) -> str:
+    if not abfragen:
+        return "Keine Tabelle mit Messwerten oder Dokumenten erkannt; kein Vorschlag für eine Abfrage.\n"
+    L = []
+    for a in abfragen:
+        L.append(f"-- {'ZU PRÜFEN' if a['pruefen'] else 'ohne offene Punkte'}: {a['name']}"
+                 + (f" ({a['zeilen']} Zeilen)" if a["zeilen"] is not None else ""))
+        L += [f"--   {h}" for h in a["hinweise"]]
+        L += [a["sql"].rstrip() + ";", ""]
+    return "\n".join(L)

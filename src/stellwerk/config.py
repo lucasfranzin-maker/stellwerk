@@ -14,7 +14,7 @@ DEFAULTS: dict[str, Any] = {
     "vorlagen_zuordnung": {},
     "ziel": "isik-dokument",            # oder "transaktion"
     "zeitzone": "Europe/Berlin",
-    "systeme": {"patient": None, "fall": None, "dokument": None},
+    "systeme": {"patient": None, "fall": None, "dokument": None, "auftrag": None},   # auftrag: nur für Messwerte (Feld-Mapping)
     "standard": {"fallart": None, "autor": None},
     "ocr": {"modus": "auto", "sprache": "deu", "dpi": 300,
             "seite_warnen_unter": 75, "zahl_warnen_unter": 80, "wort_unsicher_unter": 60},
@@ -36,6 +36,7 @@ PLATZHALTER = {
     "patient": "https://example.org/fhir/sid/patientennummer",
     "fall": "https://example.org/fhir/sid/aufnahmenummer",
     "dokument": "https://example.org/fhir/sid/dokumentnummer",
+    "auftrag": "https://example.org/fhir/sid/auftragsnummer",
 }
 
 
@@ -62,7 +63,7 @@ def load(path: str | os.PathLike | None = None) -> dict[str, Any]:
     for key, name in (("datenbank", "STELLWERK_DATENBANK"), ("arbeitsbereich", "STELLWERK_ARBEITSBEREICH"), ("ausgabe", "STELLWERK_AUSGABE")):
         if env.get(name):
             cfg[key] = env[name]
-    for k in ("patient", "fall", "dokument"):
+    for k in ("patient", "fall", "dokument", "auftrag"):
         if env.get(f"STELLWERK_SYSTEM_{k.upper()}"):
             cfg["systeme"][k] = env[f"STELLWERK_SYSTEM_{k.upper()}"]
     if env.get("STELLWERK_LLM_URL"):
