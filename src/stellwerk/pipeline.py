@@ -107,9 +107,9 @@ def crosscheck_patient(doc: SourceDoc) -> list[Finding]:
 
 
 def process(doc: SourceDoc, cfg: dict, vorlage: str | None = None, llm: LocalLLM | None = None,
-            llm_note: str = "", now=None) -> Result:
+            llm_note: str = "", now=None, tpl: Template | None = None) -> Result:
     name = vorlage or (cfg.get("vorlagen_zuordnung") or {}).get(doc.meta.type_hint) or cfg.get("vorlage", "entlassbrief")
-    tpl = load_template(name)
+    tpl = tpl or load_template(name)
     res = Result(doc, tpl, findings=list(doc.findings), llm=llm.label if llm else llm_note)
     if any(f.severity == FEHLER for f in res.findings) and not any(ln.text.strip() for ln in doc.lines):
         return res

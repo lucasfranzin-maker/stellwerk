@@ -13,3 +13,4 @@ stellwerk.yaml
 *.local.yaml
 
 !beispiele/stellwerk.yaml
+arbeitsbereich/

@@ -22,6 +22,7 @@ DEFAULTS: dict[str, Any] = {
             "nur_lokal": True, "erlaubte_hosts": []},
     "zustellung": {"ziel": None, "bei_pruefen": "zurueckhalten"},
     "ausgabe": "out",
+    "arbeitsbereich": "arbeitsbereich",   # Projekte und Aufgaben der Workbench
 }
 
 PLATZHALTER = {

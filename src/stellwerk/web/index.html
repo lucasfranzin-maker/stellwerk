@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stellwerk</title>
+<style>
+:root{--nav:#0F1B2D;--nav2:#18273F;--navln:#24344F;--navink:#E6ECF5;--navmut:#93A3BA;
+--bg:#FAFAFA;--panel:#FFFFFF;--sub:#F4F4F5;--line:#E4E4E7;--focus:#A1A1AA;--ink:#09090B;--mut:#52525B;--dim:#A1A1AA;
+--acc:#1D4ED8;--ok:#047857;--okbg:#ECFDF5;--okln:#A7F3D0;--warn:#B45309;--warnbg:#FFFBEB;--warnln:#FDE68A;
+--err:#BE123C;--errbg:#FFF1F2;--errln:#FECDD3;--ai:#4338CA;--aibg:#EEF2FF;--ailn:#C7D2FE;
+--sans:Geist,Inter,system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"JetBrains Mono","Geist Mono",ui-monospace,Menlo,Consolas,monospace;
+--js:#0550AE;--jk:#09090B;--jn:#B45309}
+@media (prefers-color-scheme:dark){:root{--nav:#0A0F18;--nav2:#141C2B;--navln:#1E293B;
+--bg:#09090B;--panel:#111113;--sub:#18181B;--line:#27272A;--focus:#52525B;--ink:#FAFAFA;--mut:#A1A1AA;--dim:#63636B;
+--acc:#3B82F6;--ok:#34D399;--okbg:#06231A;--okln:#065F46;--warn:#FBBF24;--warnbg:#2A1D05;--warnln:#78350F;
+--err:#FB7185;--errbg:#2B0A12;--errln:#881337;--ai:#A5B4FC;--aibg:#15173A;--ailn:#3730A3;--js:#7DB7FF;--jk:#FAFAFA;--jn:#FBBF24}}
+*{box-sizing:border-box}html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 var(--sans);font-feature-settings:"cv02","cv03","cv04","cv11"}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+svg.i{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
+#app{display:grid;grid-template-columns:var(--navw,264px) 1fr;height:100%}
+/* Explorer */
+aside{background:var(--nav);color:var(--navink);display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--navln)}
+.brand{display:flex;align-items:center;gap:9px;padding:14px 14px 12px;font-size:15px;font-weight:600;letter-spacing:-.01em}
+.brand span{width:22px;height:22px;border-radius:5px;background:var(--acc);display:grid;place-items:center;color:#fff}
+.navh{display:flex;align-items:center;justify-content:space-between;padding:6px 8px 6px 14px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--navmut)}
+.tree{flex:1;overflow:auto;padding:0 6px 12px}
+.node{display:flex;align-items:center;gap:6px;height:30px;padding:0 4px;border-radius:4px;cursor:pointer;color:var(--navink);white-space:nowrap}
+.node:hover{background:var(--nav2)}.node.sel{background:var(--nav2);box-shadow:inset 2px 0 0 var(--acc)}
+.node .nm{flex:1;overflow:hidden;text-overflow:ellipsis;background:none;border:0;color:inherit;text-align:left;padding:0;height:100%;cursor:pointer}
+.node .chev{transition:transform .1s;color:var(--navmut)}.node.open .chev{transform:rotate(90deg)}
+.node .acts{display:none;gap:1px}.node:hover .acts,.node:focus-within .acts{display:flex}
+.ib{width:24px;height:24px;display:grid;place-items:center;border:0;border-radius:4px;background:none;color:var(--navmut);cursor:pointer}
+.ib:hover{background:var(--navln);color:var(--navink)}.ib.dang{color:#FDA4AF}
+.node input{flex:1;min-width:0;height:24px;border:1px solid var(--acc);border-radius:4px;background:var(--nav);color:var(--navink);padding:0 6px}
+.kids{margin-left:13px;border-left:1px solid var(--navln);padding-left:4px}
+.navf{padding:10px 14px;border-top:1px solid var(--navln);color:var(--navmut);font-size:12px}
+.hint{padding:10px 14px;color:var(--navmut)}
+/* Arbeitsfläche */
+main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line);min-height:52px}
+.crumb{color:var(--mut);font-size:12px}.bar h1{margin:0;font-size:18px;font-weight:600;letter-spacing:-.02em}
+.bar .sp{flex:1}.satz{color:var(--mut)}
+.btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border:1px solid var(--line);border-radius:5px;background:var(--panel);font-weight:500;cursor:pointer;text-decoration:none;color:var(--ink)}
+.btn:hover{border-color:var(--focus);background:var(--sub)}.btn:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:default;pointer-events:none}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}.btn.pri:hover{filter:brightness(1.1)}
+.btn.sm{height:26px;padding:0 8px;font-size:12px}
+.tag{display:inline-block;border:1px solid;border-radius:4px;padding:0 6px;font-size:12px;font-weight:600;line-height:18px;white-space:nowrap}
+.badge{padding:3px 10px;letter-spacing:.06em;font-size:12px}
+.ok{color:var(--ok);background:var(--okbg);border-color:var(--okln)}.pruefen{color:var(--warn);background:var(--warnbg);border-color:var(--warnln)}
+.fehler{color:var(--err);background:var(--errbg);border-color:var(--errln)}.ki{color:var(--ai);background:var(--aibg);border-color:var(--ailn)}
+.info{color:var(--mut);background:var(--sub);border-color:var(--line)}
+.panes{flex:1;display:grid;grid-template-columns:var(--c1,1fr) 5px var(--c2,1.25fr) 5px var(--c3,1fr);min-height:0}
+.pane{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel)}
+.split{background:var(--line);cursor:col-resize;border:0;padding:0}.split:hover,.split:focus-visible{background:var(--focus)}
+.ph{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;background:var(--sub);border-bottom:1px solid var(--line);flex:none}
+.ph h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mut)}
+.tabs{display:flex;gap:2px;height:100%}.tab{border:0;background:none;padding:0 9px;font-weight:500;color:var(--mut);cursor:pointer;border-bottom:2px solid transparent;height:100%}
+.tab:hover{color:var(--ink)}.tab[aria-selected=true]{color:var(--ink);border-bottom-color:var(--acc)}
+.pb{flex:1;overflow:auto;min-height:0}.pad{padding:10px 12px}.mut{color:var(--mut)}.mono{font-family:var(--mono);font-size:12px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:5px;overflow:hidden}.seg button{border:0;background:var(--panel);height:24px;padding:0 9px;font-size:12px;cursor:pointer;color:var(--mut)}
+.seg button:hover{background:var(--sub)}.seg button[aria-pressed=true]{background:var(--ink);color:var(--panel)}
+pre.code{margin:0;font:12px/1.55 var(--mono);counter-reset:l;padding:6px 0}
+pre.code span.l{display:block;padding:0 10px 0 46px;position:relative;white-space:pre-wrap;overflow-wrap:anywhere;min-height:1.55em}
+pre.code span.l::before{counter-increment:l;content:counter(l);position:absolute;left:0;width:36px;text-align:right;color:var(--dim);font-variant-numeric:tabular-nums}
+pre.code span.l:hover{background:var(--sub)}
+.k{color:var(--jk);font-weight:500}.s{color:var(--js)}.n{color:var(--jn)}
+.seg3{color:var(--acc);font-weight:600}
+label.f{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:500;color:var(--mut)}
+.in{height:30px;border:1px solid var(--line);border-radius:4px;background:var(--panel);padding:0 8px;font:12px var(--mono);min-width:0;width:100%}
+textarea.in{height:110px;padding:6px 8px;resize:vertical}.in:hover{border-color:var(--focus)}select.in{font-family:var(--sans);font-size:13px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.blk{border-bottom:1px solid var(--line)}.bh{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:5px 10px;background:var(--sub);border-bottom:1px solid var(--line);position:sticky;top:0}
+.bh select{height:26px;max-width:210px}.bh .orig{font:12px var(--mono);color:var(--mut)}
+.blk.ai .bh{background:var(--aibg);border-color:var(--ailn)}
+.ln{display:grid;grid-template-columns:1fr auto;gap:10px;padding:1px 10px;font:12px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;min-height:1.5em}
+.ln:hover{background:var(--sub)}.ln.low{background:var(--warnbg)}.ln .o{color:var(--dim);font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
+mark{background:none;color:var(--warn);border-bottom:2px solid var(--warn);font-weight:600}
+ol.fl{list-style:none;margin:0;padding:0}ol.fl li{padding:9px 12px;border-bottom:1px solid var(--line)}
+ol.fl .wo{font:500 12px var(--mono)}.tun{margin-top:4px;padding:4px 8px;border-left:2px solid var(--acc);background:var(--sub)}
+table.t{border-collapse:collapse;width:100%;font:12px var(--mono)}table.t th{position:sticky;top:0;background:var(--sub);text-align:left;height:30px;padding:0 8px;border-bottom:1px solid var(--line);font-weight:600;white-space:nowrap}
+table.t td{padding:5px 8px;border-bottom:1px solid var(--line);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}table.t tr:hover td{background:var(--sub)}
+.empty{flex:1;display:grid;place-items:center;text-align:center;color:var(--mut);padding:24px}.empty b{display:block;color:var(--ink);font-size:15px;margin-bottom:4px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}.toast{position:fixed;right:16px;bottom:16px;max-width:420px;padding:9px 12px;border-radius:6px;border:1px solid;box-shadow:0 4px 12px rgba(0,0,0,.08)}
+@media (max-width:980px){#app{grid-template-columns:1fr;height:auto}aside{max-height:40vh}.panes{grid-template-columns:1fr;grid-auto-rows:minmax(320px,auto)}.split{display:none}.pane{border-bottom:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div id="app">
+<aside>
+  <div class="brand"><span aria-hidden="true"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h5l6 10h5"/><path d="M4 17h5l2-3.3"/><path d="M15 7h5"/></svg></span>Stellwerk</div>
+  <div class="navh"><span>Projekte</span><button class="ib" id="addroot" aria-label="Neues Projekt" title="Neues Projekt"></button></div>
+  <nav class="tree" id="tree" aria-label="Projekte"></nav>
+  <div class="navf">Daten bleiben auf diesem Rechner.</div>
+</aside>
+<main id="main"></main>
+</div>
+<script>
+"use strict";
+const ICON = {
+  chev:'<path d="m9 18 6-6-6-6"/>', folder:'<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  file:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>', fplus:'<path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  play:'<polygon points="6 3 20 12 6 21 6 3"/>', down:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+  up:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
+  trash:'<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
+  pen:'<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>', x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>', send:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>'
+};
+const icon = n => { const t = document.createElement('template'); t.innerHTML = `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICON[n]}</svg>`; return t.content.firstChild; };
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === false || v == null) continue;
+    if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (k === 'class') e.className = v; else if (k in e && k !== 'list') e[k] = v; else e.setAttribute(k, v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) e.append(c.nodeType ? c : document.createTextNode(c));
+  return e;
+}
+const S = { tree: {kinder: []}, vorlagen: [], sel: null, task: null, lauf: null, busy: false, edit: null, del: null, tabM: 'zuordnung', tabO: 'json' };
+const uid = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), b => b.toString(36).padStart(2, '0')).join('').slice(0, 12);
+async function api(method, path, body, raw) {
+  const r = await fetch('/api/' + path, { method, body: raw ? body : body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({ fehler: 'Unerwartete Antwort des Dienstes.' }));
+  if (!r.ok) throw new Error(j.fehler || 'Fehler ' + r.status);
+  return j;
+}
+function toast(msg, cls) { document.querySelectorAll('.toast').forEach(t => t.remove()); const t = h('div', { class: 'toast ' + (cls || 'fehler'), role: 'status' }, msg); document.body.append(t); setTimeout(() => t.remove(), 6000); }
+
+/* ---------- Explorer ---------- */
+function find(id, list = S.tree.kinder, trail = []) { for (const n of list) { if (n.id === id) return { n, list, trail: [...trail, n] }; if (n.kinder) { const r = find(id, n.kinder, [...trail, n]); if (r) return r; } } return null; }
+async function saveTree() { try { await api('PUT', 'baum', S.tree); } catch (e) { toast(e.message); } }
+function addNode(parent, typ) {
+  const n = { id: uid(), name: typ === 'ordner' ? 'Neuer Ordner' : 'Neue Aufgabe', typ, ...(typ === 'ordner' ? { kinder: [], offen: true } : {}) };
+  (parent ? parent.kinder : S.tree.kinder).push(n); if (parent) parent.offen = true;
+  S.edit = n.id; saveTree(); drawTree();
+}
+function drawTree() {
+  const root = document.getElementById('tree'); root.replaceChildren();
+  if (!S.tree.kinder.length) root.append(h('p', { class: 'hint' }, 'Noch kein Projekt. Mit + ein Projekt anlegen, z. B. „Krankenhaus A“, darunter Ordner und Aufgaben.'));
+  const draw = (list, into) => list.forEach(n => {
+    const isF = n.typ === 'ordner';
+    const row = h('div', { class: 'node' + (S.sel === n.id ? ' sel' : '') + (isF && n.offen ? ' open' : '') });
+    if (isF) { const c = icon('chev'); c.classList.add('chev'); row.append(c); }
+    row.append(icon(isF ? 'folder' : 'file'));
+    if (S.edit === n.id) {
+      const inp = h('input', { value: n.name, 'aria-label': 'Name', onkeydown: e => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.value = n.name; inp.blur(); } },
+        onblur: () => { n.name = inp.value.trim() || n.name; S.edit = null; saveTree(); drawTree(); if (S.sel === n.id) drawMain(); } });
+      row.append(inp); setTimeout(() => { inp.focus(); inp.select(); });
+    } else {
+      row.append(h('button', { class: 'nm', title: n.name, 'aria-expanded': isF ? String(!!n.offen) : null, onclick: () => { if (isF) { n.offen = !n.offen; saveTree(); drawTree(); } else openTask(n.id); } }, n.name));
+      const acts = h('span', { class: 'acts' });
+      const ib = (ic, label, fn, cls) => h('button', { class: 'ib ' + (cls || ''), 'aria-label': label, title: label, onclick: e => { e.stopPropagation(); fn(); } }, icon(ic));
+      if (S.del === n.id) acts.append(ib('check', 'Wirklich löschen', () => { const f = find(n.id); f.list.splice(f.list.indexOf(n), 1); if (S.sel && !find(S.sel)) { S.sel = null; drawMain(); } S.del = null; saveTree(); drawTree(); }, 'dang'), ib('x', 'Abbrechen', () => { S.del = null; drawTree(); }));
+      else { if (isF) acts.append(ib('fplus', 'Ordner darunter anlegen', () => addNode(n, 'ordner')), ib('plus', 'Aufgabe darunter anlegen', () => addNode(n, 'aufgabe')));
+        acts.append(ib('pen', 'Umbenennen', () => { S.edit = n.id; drawTree(); }), ib('trash', 'Löschen', () => { S.del = n.id; drawTree(); })); }
+      row.append(acts);
+    }
+    into.append(row);
+    if (isF && n.offen) { const k = h('div', { class: 'kids' }); draw(n.kinder, k); if (!n.kinder.length) k.append(h('div', { class: 'hint', style: 'padding:4px 8px' }, 'leer')); into.append(k); }
+  });
+  draw(S.tree.kinder, root);
+}
+
+/* ---------- Aufgabe ---------- */
+async function openTask(id) { S.sel = id; S.lauf = null; S.task = null; S.tabM = 'zuordnung'; S.tabO = 'json'; drawTree(); drawMain(); try { S.task = await api('GET', 'aufgabe/' + id); drawMain(); if (S.task.quelle || (S.task.art === 'sql' && S.task.abfrage)) run(); } catch (e) { toast(e.message); } }
+async function saveTask() { const { quelle, ...t } = S.task; S.task = await api('PUT', 'aufgabe/' + S.sel, t); }
+async function run() {
+  if (S.busy) return; S.busy = true; drawMain();
+  try { await saveTask(); S.lauf = await api('POST', 'aufgabe/' + S.sel + '/lauf'); }
+  catch (e) { S.lauf = null; toast(e.message); }
+  S.busy = false; drawMain();
+}
+async function upload(file) { try { S.task = await api('POST', 'aufgabe/' + S.sel + '/quelle?name=' + encodeURIComponent(file.name), file, true); run(); } catch (e) { toast(e.message); } }
+function setAlias(heading, key) { S.task.aliase = { ...S.task.aliase, [heading]: key }; run(); }
+
+function jsonHtml(obj) {
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const val = v => { const m = /^(.*?)(,?)$/.exec(v), x = m[1], c = x.startsWith('"') ? 's' : /^(-?\d|true|false|null)/.test(x) ? 'n' : ''; return (c ? `<span class="${c}">${x}</span>` : x) + m[2]; };
+  return JSON.stringify(obj, null, 2).split('\n').map(l => { const e = esc(l), m = /^(\s*)("(?:[^"\\]|\\.)*")(: )(.*)$/.exec(e);
+    return '<span class="l">' + (m ? m[1] + `<span class="k">${m[2]}</span>` + m[3] + val(m[4]) : e.replace(/^(\s*)(.*)$/, (x, sp, r) => sp + val(r))) + '</span>'; }).join('');
+}
+function tabs(cur, items, set) { return h('div', { class: 'tabs', role: 'tablist' }, items.map(([k, label]) => h('button', { class: 'tab', role: 'tab', 'aria-selected': String(cur === k), onclick: () => { set(k); drawMain(); } }, label))); }
+
+function paneSource() {
+  const t = S.task, L = S.lauf, body = h('div', { class: 'pb' });
+  const seg = h('span', { class: 'seg', role: 'group', 'aria-label': 'Art der Quelle' }, [['datei', 'Datei'], ['sql', 'SQL']].map(([k, l]) => h('button', { 'aria-pressed': String(t.art === k), onclick: () => { t.art = k; S.lauf = null; saveTask().then(drawMain); } }, l)));
+  if (t.art === 'datei') {
+    const inp = h('input', { type: 'file', hidden: true, onchange: () => inp.files[0] && upload(inp.files[0]) });
+    body.append(h('div', { class: 'pad row', style: 'border-bottom:1px solid var(--line)' }, inp, h('button', { class: 'btn sm', onclick: () => inp.click() }, icon('up'), t.quelle ? 'Andere Datei' : 'Datei wählen'),
+      h('span', { class: 'mono mut' }, t.quelle || 'HL7 v2, PDF oder Text')));
+    if (L && L.roh.text != null) { const pre = h('pre', { class: 'code' }); L.roh.text.split('\n').forEach(l => { const s = h('span', { class: 'l' }); const m = /^([A-Z][A-Z0-9]{2})(\|.*)$/.exec(l); if (L.art === 'hl7' && m) s.append(h('span', { class: 'seg3' }, m[1]), m[2]); else s.textContent = l; pre.append(s); }); body.append(pre); }
+    else if (!t.quelle) body.append(h('div', { class: 'pad mut' }, 'Quelldatei hochladen. Sie wird im Arbeitsbereich auf diesem Rechner gespeichert.'));
+  } else {
+    const db = h('input', { class: 'in', value: t.db, placeholder: 'sqlite:///pfad/kis.db oder SQLAlchemy-Adresse', onchange: () => { t.db = db.value; } });
+    const q = h('textarea', { class: 'in', value: t.abfrage, placeholder: 'SELECT DOKNR, PATNR, FALLNR, DIAGNOSEN, ... FROM ...', spellcheck: false, onchange: () => { t.abfrage = q.value; } });
+    body.append(h('div', { class: 'pad', style: 'display:grid;gap:8px;border-bottom:1px solid var(--line)' }, h('label', { class: 'f' }, 'Datenbank', db), h('label', { class: 'f' }, 'Abfrage (nur SELECT)', q)));
+    if (L && L.roh.spalten) body.append(h('div', { class: 'pad mut' }, `${L.roh.gesamt} Zeilen gelesen` + (L.roh.gesamt > 50 ? ', 50 gezeigt' : '') + '.'),
+      h('table', { class: 't' }, h('thead', {}, h('tr', {}, L.roh.spalten.map(c => h('th', {}, c)))), h('tbody', {}, L.roh.zeilen.map(r => h('tr', {}, r.map(c => h('td', { title: c }, c)))))));
+  }
+  return h('section', { class: 'pane', 'aria-label': 'Quelle' }, h('div', { class: 'ph' }, h('h2', {}, 'Quelle'), h('span', { style: 'flex:1' }), seg), body);
+}
+
+function paneMap() {
+  const t = S.task, L = S.lauf, body = h('div', { class: 'pb' });
+  const nTodo = L ? L.befunde.filter(b => b.stufe !== 'info').length : 0;
+  if (!L) body.append(h('div', { class: 'pad mut' }, S.busy ? 'Wird verarbeitet … Gescannte Seiten brauchen einige Sekunden.' : 'Quelle wählen und ausführen.'));
+  else if (S.tabM === 'zuordnung') {
+    if (!L.bloecke.length) body.append(h('div', { class: 'pad mut' }, 'Kein Text gelesen. Siehe Befunde.'));
+    L.bloecke.forEach(b => {
+      const key = b.ueberschrift || (['ueberschrift', 'quelle'].includes(b.methode) ? b.titel : '');
+      const sel = h('select', { class: 'in', 'aria-label': 'Zielabschnitt', disabled: !key, title: key ? 'Zielabschnitt ändern. Gilt für diese Überschrift in dieser Aufgabe.' : 'Ohne Überschrift im Original; Zuordnung über die Position.',
+        onchange: () => setAlias(key, sel.value) }, L.vorlage.abschnitte.map(a => h('option', { value: a.key, selected: a.key === b.abschnitt }, a.titel)));
+      const art = b.methode === 'ki' ? 'ki' : ['unscharf', 'rest'].includes(b.methode) ? 'pruefen' : 'ok';
+      const fixed = key && t.aliase[key];
+      const head = h('div', { class: 'bh' }, sel, h('span', { class: 'tag ' + (fixed ? 'info' : art), title: b.methode_text }, fixed ? 'festgelegt' : b.methode === 'ki' ? 'Modell · ' + b.sicherheit : art === 'ok' ? 'sicher' : 'prüfen'),
+        key ? h('span', { class: 'orig' }, '„' + key + '“') : null, h('span', { class: 'mut', style: 'flex:1' }, fixed ? 'in dieser Aufgabe festgelegt' : art === 'ok' ? '' : b.methode_text));
+      if (b.methode === 'ki' && !fixed) head.append(h('button', { class: 'btn sm', onclick: () => setAlias(key, b.abschnitt) }, icon('check'), 'Übernehmen'), h('button', { class: 'btn sm', onclick: () => setAlias(key, L.vorlage.abschnitte.at(-1).key) }, icon('x'), 'Ablehnen'));
+      if (fixed) head.append(h('button', { class: 'btn sm', onclick: () => { const a = { ...t.aliase }; delete a[key]; t.aliase = a; run(); } }, 'Zurücksetzen'));
+      const blk = h('div', { class: 'blk' + (b.methode === 'ki' && !fixed ? ' ai' : '') }, head);
+      b.zeilen.forEach(z => { const low = z.pruefen;
+        const tx = h('span', {}); let rest = z.text; const words = [...new Set(z.unsicher)].filter(w => w.length > 1).sort((a, c) => c.length - a.length);
+        if (words.length) { const re = new RegExp('(' + words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'g'); rest.split(re).forEach((p, i) => tx.append(i % 2 ? h('mark', {}, p) : p)); } else tx.textContent = rest || ' ';
+        blk.append(h('div', { class: 'ln' + (low ? ' low' : '') }, tx, h('span', { class: 'o' }, z.text.trim() ? z.herkunft + (z.ocr != null ? ' · ' + Math.round(z.ocr) + ' %' : '') : ''))); });
+      body.append(blk);
+    });
+  } else if (S.tabM === 'kopf') {
+    const F = [['patient_id', 'Patientennummer'], ['encounter_id', 'Fallnummer'], ['doc_id', 'Dokumentnummer'], ['doc_date', 'Dokumentdatum'], ['title', 'Titel'], ['author', 'Verfasser'], ['family', 'Nachname'], ['given', 'Vorname'], ['birth_date', 'Geburtsdatum']];
+    const vs = h('select', { class: 'in', onchange: () => { t.vorlage = vs.value; } }, h('option', { value: '' }, 'Vorgabe (' + L.vorlage.name + ')'), S.vorlagen.map(v => h('option', { value: v, selected: t.vorlage === v }, v)));
+    const grid = h('div', { class: 'grid2' }, h('label', { class: 'f' }, 'Vorlage', vs));
+    if (L.dokumente.length > 1) { const ds = h('select', { class: 'in', onchange: () => { t.dokument = +ds.value; } }, L.dokumente.map((d, i) => h('option', { value: i, selected: i === L.dokument }, d))); grid.append(h('label', { class: 'f' }, 'Dokument', ds)); }
+    F.forEach(([k, label]) => { const i = h('input', { class: 'in', value: t.meta[k] || '', placeholder: L.kopf[k] || 'nicht in der Quelle', onchange: () => { t.meta = { ...t.meta, [k]: i.value }; } }); grid.append(h('label', { class: 'f' }, label, i)); });
+    body.append(h('div', { class: 'pad' }, h('p', { class: 'mut', style: 'margin:0 0 10px' }, 'Grau: Wert aus der Quelle. Ein Eintrag hier überschreibt ihn für diese Aufgabe.'), grid,
+      h('div', { style: 'margin-top:12px' }, h('button', { class: 'btn', onclick: run }, icon('play'), 'Übernehmen und ausführen'))));
+  } else {
+    const ol = h('ol', { class: 'fl' }); const order = { fehler: 0, pruefen: 1, info: 2 }, name = { fehler: 'Fehler', pruefen: 'Prüfen', info: 'Erledigt' };
+    [...L.befunde].sort((a, b) => order[a.stufe] - order[b.stufe]).forEach(b => ol.append(h('li', {}, h('span', { class: 'tag ' + b.stufe }, name[b.stufe]), ' ', h('span', { class: 'wo' }, b.wo), h('div', {}, b.meldung), b.was_tun && b.stufe !== 'info' ? h('div', { class: 'tun' }, h('b', {}, 'Was tun: '), b.was_tun) : null)));
+    body.append(L.befunde.length ? ol : h('div', { class: 'pad mut' }, 'Keine Befunde.'));
+  }
+  return h('section', { class: 'pane', 'aria-label': 'Zuordnung' }, h('div', { class: 'ph' }, tabs(S.tabM, [['zuordnung', 'Zuordnung'], ['kopf', 'Kopfdaten'], ['befunde', 'Befunde' + (nTodo ? ' · ' + nTodo : '')]], k => S.tabM = k)), body);
+}
+
+function paneOut() {
+  const L = S.lauf, t = S.task, body = h('div', { class: 'pb' });
+  if (!L) body.append(h('div', { class: 'pad mut' }, 'Hier erscheint das FHIR-Bundle.'));
+  else if (S.tabO === 'json') {
+    if (L.bundle) { const pre = h('pre', { class: 'code' }); pre.innerHTML = jsonHtml(L.bundle); body.append(pre); }
+    else body.append(h('div', { class: 'pad' }, h('span', { class: 'tag fehler' }, 'Kein Bundle'), h('p', { class: 'mut' }, 'Erst die Fehler unter „Befunde“ beheben.')));
+  } else {
+    const fh = L.befunde.filter(b => b.code.startsWith('FHIR_'));
+    body.append(h('div', { class: 'pad' }, h('span', { class: 'tag ' + (fh.length || !L.bundle ? 'fehler' : 'ok') }, fh.length || !L.bundle ? 'Profilregeln verletzt oder kein Bundle' : 'Eingebaute Profilregeln erfüllt'),
+      h('p', { class: 'mut' }, 'Geprüft werden die Regeln aus ISiKBerichtBundle und ISiKBerichtSubSysteme, die Stellwerk selbst kennt. Das ersetzt nicht den offiziellen FHIR-Validator.'),
+      fh.map(b => h('p', {}, h('span', { class: 'wo mono' }, b.wo), ': ', b.meldung))));
+    const o = h('input', { class: 'in', value: t.ablage, placeholder: '/pfad/zum/abholordner', onchange: () => { t.ablage = o.value; saveTask(); } });
+    body.append(h('div', { class: 'pad', style: 'border-top:1px solid var(--line)' }, h('label', { class: 'f' }, 'Abholordner des Kommunikationsservers (Cloverleaf, Mirth)', o),
+      h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'btn', disabled: !L.bundle, onclick: async () => { try { t.ablage = o.value; await saveTask(); const r = await api('POST', 'aufgabe/' + S.sel + '/ablegen', { ordner: o.value }); toast('Abgelegt: ' + r.datei, 'ok'); } catch (e) { toast(e.message); } } }, icon('send'), 'Bundle ablegen')),
+      L.status === 'pruefen' ? h('p', { class: 'mut' }, 'Hinweis: Es gibt offene Prüfpunkte. Ablegen ist trotzdem möglich und Ihre Entscheidung.') : null));
+  }
+  return h('section', { class: 'pane', 'aria-label': 'FHIR-Ausgabe' }, h('div', { class: 'ph' }, tabs(S.tabO, [['json', 'Bundle.json'], ['val', 'Prüfung und Ablage']], k => S.tabO = k)), body);
+}
+
+function drawMain() {
+  const main = document.getElementById('main'); const keep = [...main.querySelectorAll('.pb')].map(e => e.scrollTop);
+  main.replaceChildren();
+  const f = S.sel && find(S.sel);
+  if (!f || !S.task) { main.append(h('div', { class: 'empty' }, h('div', {}, h('b', {}, f ? 'Lädt …' : 'Aufgabe wählen'), f ? '' : 'Links ein Projekt anlegen, darunter Ordner und Aufgaben. Eine Aufgabe öffnet Quelle, Zuordnung und FHIR-Ausgabe nebeneinander.'))); return; }
+  const L = S.lauf, st = { ok: 'OK', pruefen: 'PRÜFEN', fehler: 'FEHLER' };
+  main.append(h('div', { class: 'bar' }, h('div', {}, h('div', { class: 'crumb' }, f.trail.slice(0, -1).map(n => n.name).join(' / ') || 'Projekte'), h('h1', {}, f.n.name)),
+    L ? h('span', { class: 'tag badge ' + L.status }, st[L.status]) : null, L ? h('span', { class: 'satz' }, L.satz) : null, h('span', { class: 'sp' }),
+    h('a', { class: 'btn', href: '/api/aufgabe/' + S.sel + '/bundle', download: 'bundle.json', 'aria-disabled': String(!(L && L.bundle)) }, icon('down'), 'Bundle laden'),
+    h('button', { class: 'btn pri', disabled: S.busy, onclick: run }, icon('play'), S.busy ? 'Läuft …' : 'Ausführen')));
+  const split = (v, a, b) => { const s = h('button', { class: 'split', 'aria-label': 'Spaltenbreite ändern' }); s.addEventListener('pointerdown', e => { s.setPointerCapture(e.pointerId); const P = s.parentElement, A = s.previousElementSibling, B = s.nextElementSibling, x0 = e.clientX, wa = A.offsetWidth, wb = B.offsetWidth;
+    const mv = ev => { const d = Math.max(-wa + 160, Math.min(wb - 160, ev.clientX - x0)); P.style.setProperty(a, (wa + d) + 'px'); P.style.setProperty(b, (wb - d) + 'px'); };
+    s.addEventListener('pointermove', mv); s.addEventListener('pointerup', () => s.removeEventListener('pointermove', mv), { once: true }); }); return s; };
+  const panes = h('div', { class: 'panes' }, paneSource(), split(0, '--c1', '--c2'), paneMap(), split(1, '--c2', '--c3'), paneOut());
+  if (S.cols) panes.style.cssText = S.cols; new MutationObserver(() => S.cols = panes.style.cssText).observe(panes, { attributes: true, attributeFilter: ['style'] });
+  main.append(panes); [...main.querySelectorAll('.pb')].forEach((e, i) => e.scrollTop = keep[i] || 0);
+}
+
+document.getElementById('addroot').append(icon('plus'));
+document.getElementById('addroot').onclick = () => addNode(null, 'ordner');
+api('GET', 'baum').then(t => { S.vorlagen = t.vorlagen; S.tree = { kinder: t.kinder }; drawTree(); drawMain(); }).catch(e => { console.error(e); toast(e.message); });
+</script>
+</body>
+</html>

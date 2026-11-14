@@ -15,7 +15,7 @@ stellwerk doctor                 # prüft Texterkennung, lokales Modell, Konfigu
 stellwerk convert arztbrief_mdm.hl7
 stellwerk convert arztbrief_scan.pdf --patient-id 4711001 --fall 2026004711 --dokument-id SCAN-1
 stellwerk sql kis_zuordnung.yaml
-stellwerk serve                  # Seite zum Ausprobieren auf http://127.0.0.1:8080
+stellwerk serve                  # Workbench auf http://127.0.0.1:8080
 ```
 
 Je Dokument entsteht ein Ordner unter `out/`:
@@ -29,6 +29,19 @@ Je Dokument entsteht ein Ordner unter `out/`:
 | `text.txt` | der gelesene Text |
 
 Rückgabewert: `0` OK, `1` zu prüfen, `2` Fehler.
+
+## Workbench
+
+`stellwerk serve` öffnet die Workbench im Browser:
+
+- **Links:** Projekte als Baum, frei gegliedert (Haus, Schnittstelle, Aufgabe).
+- **Aufgabe:** Quelle (Datei oder SQL-Abfrage), Zuordnung und FHIR-Bundle stehen nebeneinander.
+- **Zuordnung ändern:** Zielabschnitt je Überschrift wählen; das gilt dann für diese Aufgabe. Vorschläge des Modells lassen sich übernehmen oder ablehnen.
+- **Kopfdaten:** Werte aus der Quelle je Aufgabe überschreiben.
+- **Ausgabe:** Bundle laden oder in den Abholordner des Kommunikationsservers legen.
+
+Projekte und Quelldateien liegen im Ordner `arbeitsbereich/` auf dem Rechner, auf dem der Dienst läuft.
+Die einfache Upload-Seite gibt es weiter unter `/probieren`.
 
 ## Was mit schwierigen Eingängen passiert
 
@@ -95,7 +108,9 @@ Anbindung an Cloverleaf: [docs/cloverleaf.md](docs/cloverleaf.md).
 - Das Original-PDF steht nicht im Bundle, sondern im Ausgabeordner.
 - Kopfzeilen, die nur auf einer Folgeseite stehen, werden nicht als Kopfzeile erkannt und landen im Abschnitt.
 - Numerische `OBX` werden als Textzeilen übernommen, nicht als Observation.
-- Der HTTP-Dienst hat keine Anmeldung.
+- Der HTTP-Dienst und die Workbench haben keine Anmeldung und keine Benutzerverwaltung.
+- Die Workbench bildet Dokumente auf Composition-Abschnitte ab. Feld-Mapping auf Patient/Observation, Regelwerk und Terminologie gibt es noch nicht.
+- Für Mirth gibt es keinen eigenen Export; es bekommt dasselbe FHIR-Bundle über Abholordner oder HTTP.
 
 ## Datenschutz
 

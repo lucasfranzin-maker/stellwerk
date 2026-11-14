@@ -127,7 +127,7 @@ def render_text(res, skip: set | None = None) -> str:
 # --------------------------------------------------------------------------
 
 _CSS = """
-:root{--bg:#FAFAFA;--panel:#FFFFFF;--sub:#F4F4F5;--line:#E4E4F7;--focus:#A1A1AA;--ink:#09090B;--mut:#52525B;--dim:#A1A1AA;
+:root{--bg:#FAFAFA;--panel:#FFFFFF;--sub:#F4F4F5;--line:#E4E4E7;--focus:#A1A1AA;--ink:#09090B;--mut:#52525B;--dim:#A1A1AA;
 --acc:#1D4ED8;--ok:#059669;--okbg:#ECFDF5;--okln:#A7F3D0;--warn:#B45309;--warnbg:#FFFBEB;--warnln:#FDE68A;
 --err:#BE123C;--errbg:#FFF1F2;--errln:#FECDD3;--ai:#4338CA;--aibg:#EEF2FF;--ailn:#C7D2FE;
 --sans:Geist,Inter,system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"JetBrains Mono","Geist Mono",ui-monospace,Menlo,Consolas,monospace}

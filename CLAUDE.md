@@ -79,6 +79,12 @@ The AI assists interface developers in analyzing unknown SQL schemas or HL7 feed
 
 ---
 
+## 7a. Workbench decisions (2026-11-14, supersede conflicting rules above)
+- Chosen direction is a **mix**: dark navy sidebar for the project explorer (`--nav: #0F1B2D`), everything else follows Sections 2–4 (zinc surfaces, hairlines, density, mono for data). Accent is **cobalt**, not teal.
+- Hairline border is `#E4E4E7` (zinc-200); the `#E4E4F7` above is a typo.
+- The workbench is **one HTML file without a build step** (`src/stellwerk/web/index.html`), served by the Python service. No CDN, no web fonts, no Node: it must run in an air-gapped hospital network. Icons are inline Lucide paths.
+- Layout: explorer tree (user-defined folders and tasks) | source | mapping | FHIR output. Model proposals appear inline in the mapping pane with Accept/Reject, never as chat.
+
 ## 8. Engineering Principles (Pipeline)
 - **Extractive only:** Text in the FHIR document is always verbatim from the source. The local LLM returns `index -> section key`, never text.
 - **Nothing is dropped silently:** every source line ends up in a section, in the catch-all section, or in a finding that lists it. `sectionize` verifies the count.

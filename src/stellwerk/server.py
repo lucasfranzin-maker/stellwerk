@@ -9,7 +9,9 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import __version__
+from importlib import resources
+
+from . import __version__, workbench
 from .pipeline import deliver, ingest, make_llm, process, write_outputs
 from .report import render_html, to_json
 from .sections import list_templates
@@ -18,7 +20,7 @@ MAX_BYTES = 50 * 1024 * 1024
 
 _PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Stellwerk</title><style>
-:root{--bg:#FAFAFA;--panel:#FFF;--sub:#F4F4F5;--line:#E4E4F7;--focus:#A1A1AA;--ink:#09090B;--mut:#52525B;--acc:#1D4ED8}
+:root{--bg:#FAFAFA;--panel:#FFF;--sub:#F4F4F5;--line:#E4E4E7;--focus:#A1A1AA;--ink:#09090B;--mut:#52525B;--acc:#1D4ED8}
 @media (prefers-color-scheme:dark){:root{--bg:#09090B;--panel:#111113;--sub:#18181B;--line:#27272A;--focus:#52525B;--ink:#FAFAFA;--mut:#A1A1AA;--acc:#3B82F6}}
 *{box-sizing:border-box}body{margin:0;font:14px/1.5 Geist,Inter,system-ui,sans-serif;background:var(--bg);color:var(--ink)}
 main{max-width:1180px;margin:0 auto;padding:16px;display:flex;flex-direction:column;gap:12px}h1{font-size:19px;font-weight:600;letter-spacing:-.02em;margin:0}
@@ -51,6 +53,8 @@ document.getElementById('f').addEventListener('submit', async e => {
 
 
 def make_handler(cfg: dict, outdir: str):
+    ws = workbench.Workspace(cfg.get("arbeitsbereich") or "arbeitsbereich")
+
     class Handler(BaseHTTPRequestHandler):
         server_version = f"Stellwerk/{__version__}"
 
@@ -71,6 +75,11 @@ def make_handler(cfg: dict, outdir: str):
         def do_GET(self):
             path = urlparse(self.path).path
             if path == "/":
+                page = (resources.files("stellwerk") / "web" / "index.html").read_bytes()
+                self._send(200, page, "text/html; charset=utf-8")
+            elif path.startswith("/api/"):
+                self._api("GET")
+            elif path == "/probieren":
                 opts = "".join(f'<option value="{t}">{t}</option>' for t in list_templates())
                 self._send(200, _PAGE.replace("__VORLAGEN__", opts).encode("utf-8"), "text/html; charset=utf-8")
             elif path == "/v1/health":
@@ -79,8 +88,32 @@ def make_handler(cfg: dict, outdir: str):
             else:
                 self._json(404, {"fehler": "Unbekannter Pfad. Vorhanden: GET /, GET /v1/health, POST /v1/convert"})
 
+        def _api(self, method: str):
+            u = urlparse(self.path)
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > MAX_BYTES:
+                return self._json(413, {"fehler": f"Datei größer als {MAX_BYTES // 1024 // 1024} MB."})
+            body = self.rfile.read(n) if n else b""
+            try:
+                code, out = workbench.handle(ws, cfg, method, u.path, {k: v[0] for k, v in parse_qs(u.query).items()}, body)
+            except workbench.ApiError as exc:
+                return self._json(exc.code, {"fehler": str(exc)})
+            except Exception as exc:
+                return self._json(500, {"fehler": f"Verarbeitung abgebrochen: {exc}"})
+            if isinstance(out, bytes):
+                return self._send(code, out, "application/fhir+json; charset=utf-8")
+            self._json(code, out)
+
+        def do_PUT(self):
+            self._api("PUT")
+
+        def do_DELETE(self):
+            self._api("DELETE")
+
         def do_POST(self):
             u = urlparse(self.path)
+            if u.path.startswith("/api/"):
+                return self._api("POST")
             if u.path != "/v1/convert":
                 return self._json(404, {"fehler": "Unbekannter Pfad. Vorhanden: POST /v1/convert"})
             n = int(self.headers.get("Content-Length") or 0)
