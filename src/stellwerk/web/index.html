@@ -70,6 +70,11 @@ pre.code span.l::before{counter-increment:l;content:counter(l);position:absolute
 pre.code span.l:hover{background:var(--hover)}
 .k{color:var(--jk);font-weight:500}.s{color:var(--js)}.n{color:var(--jn)}
 .seg3{color:var(--acc);font-weight:600}
+table.map{border-collapse:collapse;width:100%;table-layout:fixed;min-width:640px}table.map th:nth-child(1){width:30px}table.map th:nth-child(2){width:18%}table.map th:nth-child(3){width:24%}table.map th:nth-child(4){width:19%}table.map td{overflow:hidden}table.map tr.why td{white-space:normal;overflow-wrap:anywhere}table.map th{position:sticky;top:0;z-index:1;background:var(--sub);text-align:left;height:32px;padding:0 8px;border-bottom:1px solid var(--line);font-size:12px;font-weight:600;color:var(--mut);white-space:nowrap}
+table.map td{padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:middle}table.map tr:hover td{background:var(--hover)}
+table.map td.num{font:11px var(--mono);color:var(--dim);font-variant-numeric:tabular-nums;width:28px}table.map .col{font:500 12px var(--mono)}table.map .smp{font:11px var(--mono);color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.map select.in{font:12px var(--mono);width:100%;height:28px}table.map input.in{height:28px}
+table.map tr.ai td{background:var(--aibg)}table.map tr.ai:hover td{background:var(--aibg)}table.map tr.why td{font-size:12px;color:var(--mut);padding-top:0;border-top:0}table.map tr.ai:not(.why) td{border-bottom:0}
 .status{display:flex;flex-wrap:wrap;gap:4px 16px;align-items:center;min-height:26px;padding:2px 14px;background:var(--panel);border-top:1px solid var(--line);font:11px var(--mono);color:var(--mut);font-variant-numeric:tabular-nums}.status b{font-weight:600;color:var(--ink)}.dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px;background:var(--dim)}.dot.ok{background:var(--ok)}.dot.pruefen{background:var(--warn)}.dot.fehler{background:var(--err)}.dot.ki{background:var(--ai)}
 label.f{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:500;color:var(--mut)}
 .in{height:30px;border:1px solid var(--line);border-radius:4px;background:var(--panel);padding:0 8px;font:12px var(--mono);min-width:0;width:100%}
@@ -182,7 +187,7 @@ function setAlias(heading, key) { S.task.aliase = { ...S.task.aliase, [heading]:
 function jsonHtml(obj) {
   const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const val = v => { const m = /^(.*?)(,?)$/.exec(v), x = m[1], c = x.startsWith('"') ? 's' : /^(-?\d|true|false|null)/.test(x) ? 'n' : ''; return (c ? `<span class="${c}">${x}</span>` : x) + m[2]; };
-  return JSON.stringify(obj, null, 2).split('\n').map(l => { const e = esc(l), m = /^(\s*)("(?:[^"\\]|\\.)*")(: )(.*)$/.exec(e);
+  return (typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2)).split('\n').map(l => { const e = esc(l), m = /^(\s*)("(?:[^"\\]|\\.)*")(: )(.*)$/.exec(e);
     return '<span class="l">' + (m ? m[1] + `<span class="k">${m[2]}</span>` + m[3] + val(m[4]) : e.replace(/^(\s*)(.*)$/, (x, sp, r) => sp + val(r))) + '</span>'; }).join('');
 }
 function tabs(cur, items, set) { return h('div', { class: 'tabs', role: 'tablist' }, items.map(([k, label]) => h('button', { class: 'tab', role: 'tab', 'aria-selected': String(cur === k), onclick: () => { set(k); drawMain(); } }, label))); }
@@ -199,7 +204,8 @@ function paneSource() {
   } else {
     const db = h('input', { class: 'in', value: t.db, placeholder: 'sqlite:///pfad/kis.db oder SQLAlchemy-Adresse', onchange: () => { t.db = db.value; } });
     const q = h('textarea', { class: 'in', value: t.abfrage, placeholder: 'SELECT DOKNR, PATNR, FALLNR, DIAGNOSEN, ... FROM ...', spellcheck: false, onchange: () => { t.abfrage = q.value; } });
-    body.append(h('div', { class: 'pad', style: 'display:grid;gap:8px;border-bottom:1px solid var(--line)' }, h('label', { class: 'f' }, 'Datenbank', db), h('label', { class: 'f' }, 'Abfrage (nur SELECT)', q)));
+    const ms = h('select', { class: 'in', onchange: () => { t.modus = ms.value; t.dokument = 0; S.lauf = null; run(); } }, [['dokument', 'Dokument: Textspalten → Composition'], ['felder', 'Felder: Spalten → Patient, Observation']].map(([k, l]) => h('option', { value: k, selected: t.modus === k }, l)));
+    body.append(h('div', { class: 'pad', style: 'display:grid;gap:8px;border-bottom:1px solid var(--line)' }, h('label', { class: 'f' }, 'Datenbank', db), h('label', { class: 'f' }, 'Abfrage (nur SELECT)', q), h('label', { class: 'f' }, 'Ergebnis verarbeiten als', ms)));
     if (L && L.roh.spalten) body.append(h('div', { class: 'pad mut' }, `${L.roh.gesamt} Zeilen gelesen` + (L.roh.gesamt > 50 ? ', 50 gezeigt' : '') + '.'),
       h('table', { class: 't' }, h('thead', {}, h('tr', {}, L.roh.spalten.map(c => h('th', {}, c)))), h('tbody', {}, L.roh.zeilen.map(r => h('tr', {}, r.map(c => h('td', { title: c }, c)))))));
   }
@@ -210,6 +216,7 @@ function paneMap() {
   const t = S.task, L = S.lauf, body = h('div', { class: 'pb' });
   const nTodo = L ? L.befunde.filter(b => b.stufe !== 'info').length : 0;
   if (!L) body.append(h('div', { class: 'pad mut' }, S.busy ? 'Wird verarbeitet … Gescannte Seiten brauchen einige Sekunden.' : 'Quelle wählen und ausführen.'));
+  else if (S.tabM !== 'befunde' && L.modus === 'felder') body.append(fieldTable());
   else if (S.tabM === 'zuordnung') {
     if (!L.bloecke.length) body.append(h('div', { class: 'pad mut' }, 'Kein Text gelesen. Siehe Befunde.'));
     L.bloecke.forEach(b => {
@@ -242,14 +249,53 @@ function paneMap() {
     [...L.befunde].sort((a, b) => order[a.stufe] - order[b.stufe]).forEach(b => ol.append(h('li', {}, h('span', { class: 'tag ' + b.stufe }, name[b.stufe]), ' ', h('span', { class: 'wo' }, b.wo), h('div', {}, b.meldung), b.was_tun && b.stufe !== 'info' ? h('div', { class: 'tun' }, h('b', {}, 'Was tun: '), b.was_tun) : null)));
     body.append(L.befunde.length ? ol : h('div', { class: 'pad mut' }, 'Keine Befunde.'));
   }
-  return h('section', { class: 'pane', 'aria-label': 'Zuordnung' }, h('div', { class: 'ph' }, tabs(S.tabM, [['zuordnung', 'Zuordnung'], ['kopf', 'Kopfdaten'], ['befunde', 'Befunde' + (nTodo ? ' · ' + nTodo : '')]], k => S.tabM = k)), body);
+  return h('section', { class: 'pane', 'aria-label': 'Zuordnung' }, h('div', { class: 'ph' }, tabs(S.tabM, [['zuordnung', L && L.modus === 'felder' ? 'Mapping-Tabelle' : 'Zuordnung'], ...(L && L.modus === 'felder' ? [] : [['kopf', 'Kopfdaten']]), ['befunde', 'Befunde' + (nTodo ? ' · ' + nTodo : '')]], k => S.tabM = k)), body);
+}
+
+function fieldTable() {
+  const t = S.task, L = S.lauf, fd = t.felder, wrap = h('div', {});
+  const setRule = (col, r) => { const regeln = { ...fd.regeln }; if (r) regeln[col] = r; else delete regeln[col]; t.felder = { ...fd, regeln, abgelehnt: fd.abgelehnt.filter(c => c !== col) }; run(); };
+  const pfad = k => (L.ziele.find(z => z.key === k) || {}).pfad || '';
+  const vor = L.spalten.filter(c => c.vorschlag && !c.regel);
+  const st = h('select', { class: 'in', style: 'width:auto', 'aria-label': 'Status der Ergebnisse', onchange: () => { t.felder = { ...fd, status: st.value }; run(); } },
+    [['', 'nicht festgelegt (unknown)'], ['final', 'final'], ['preliminary', 'preliminary'], ['corrected', 'corrected']].map(([k, l]) => h('option', { value: k, selected: L.feldstatus === k }, l)));
+  const zs = h('select', { class: 'in', style: 'width:auto;max-width:260px', 'aria-label': 'Zeile für die Vorschau', onchange: () => { t.dokument = +zs.value; run(); } }, L.dokumente.map((d, i) => h('option', { value: i, selected: i === L.dokument }, d)));
+  wrap.append(h('div', { class: 'pad row', style: 'border-bottom:1px solid var(--line);align-items:center' }, h('label', { class: 'f', style: 'flex-direction:row;align-items:center;gap:6px' }, 'Observation.status', st),
+    h('label', { class: 'f', style: 'flex-direction:row;align-items:center;gap:6px' }, 'Vorschau', zs), h('span', { style: 'flex:1' }),
+    vor.length ? h('button', { class: 'btn sm', onclick: () => { const regeln = { ...fd.regeln }; vor.filter(c => c.vorschlag.quelle === 'name').forEach(c => { const { quelle, begruendung, sicherheit, ...r } = c.vorschlag; regeln[c.name] = r; }); t.felder = { ...fd, regeln }; run(); } }, icon('check'), 'Vorschläge nach Namen übernehmen') : null));
+  const tb = h('tbody', {});
+  L.spalten.forEach((c, i) => {
+    const r = c.regel, v = !r && c.vorschlag, cur = r || v || {};
+    const zsel = h('select', { class: 'in', 'aria-label': 'Ziel für ' + c.name, onchange: () => setRule(c.name, zsel.value ? { ...(cur.ziel === zsel.value ? cur : {}), ziel: zsel.value, quelle: undefined, begruendung: undefined, sicherheit: undefined } : null) },
+      h('option', { value: '' }, '– offen –'), L.ziele.map(z => h('option', { value: z.key, selected: cur.ziel === z.key, title: z.text }, z.key === 'ignorieren' ? 'nicht übernehmen' : z.pfad)));
+    const par = h('div', { class: 'row', style: 'gap:6px;flex-wrap:nowrap' });
+    if (cur.ziel === 'obs.wert') {
+      const lo = h('input', { class: 'in', style: 'width:84px;flex:none', value: cur.loinc || '', placeholder: 'LOINC', 'aria-label': 'LOINC-Code für ' + c.name, disabled: !r, onchange: () => setRule(c.name, { ...r, loinc: lo.value.trim(), anzeige: lo.value.trim() === r.loinc ? r.anzeige : '' }) });
+      const hatEinheit = L.spalten.some(x => (x.regel || {}).ziel === 'obs.einheit' && x.regel.fuer === c.name);
+      par.append(lo); if (r && !hatEinheit) { const eh = h('input', { class: 'in', style: 'min-width:0', value: r.einheit || '', placeholder: 'Einheit fest', 'aria-label': 'Feste Einheit für ' + c.name, onchange: () => setRule(c.name, { ...r, einheit: eh.value.trim() }) }); par.append(eh); }
+    } else if (cur.ziel === 'obs.einheit') {
+      const fs = h('select', { class: 'in', 'aria-label': 'Einheit gehört zu', disabled: !r, onchange: () => setRule(c.name, { ...r, fuer: fs.value }) }, h('option', { value: '' }, 'gehört zu …'), L.spalten.filter(x => ((x.regel || x.vorschlag || {}).ziel === 'obs.wert')).map(x => h('option', { value: x.name, selected: cur.fuer === x.name }, x.name)));
+      par.append(fs);
+    } else par.append(h('span', { class: 'mut' }, '–'));
+    const tag = r ? h('span', { class: 'tag ' + (r.ziel === 'ignorieren' ? 'info' : 'ok') }, r.ziel === 'ignorieren' ? 'ausgelassen' : 'zugeordnet') : v ? h('span', { class: 'tag ki' }, v.quelle === 'modell' ? 'Modell · ' + v.sicherheit : 'Vorschlag') : h('span', { class: 'tag pruefen' }, 'offen');
+    const act = h('div', { class: 'row', style: 'gap:4px;flex-wrap:nowrap;justify-content:flex-end' });
+    if (v) act.append(h('button', { class: 'btn sm pri', onclick: () => { const { quelle, begruendung, sicherheit, ...rule } = v; setRule(c.name, rule); } }, icon('check'), 'Übernehmen'),
+      h('button', { class: 'btn sm', 'aria-label': 'Vorschlag ablehnen', title: 'Vorschlag ablehnen', onclick: () => { t.felder = { ...fd, abgelehnt: [...fd.abgelehnt, c.name] }; run(); } }, icon('x')));
+    else if (r) act.append(h('button', { class: 'btn sm', 'aria-label': 'Zuordnung entfernen', title: 'Zuordnung entfernen', onclick: () => setRule(c.name, null) }, icon('x')));
+    tb.append(h('tr', { class: v ? 'ai' : '' }, h('td', { class: 'num' }, String(i + 1).padStart(2, '0')), h('td', {}, h('div', { class: 'col' }, c.name), h('div', { class: 'smp' }, c.beispiele.join(' · ') || 'leer')), h('td', {}, zsel), h('td', {}, par), h('td', {}, h('div', { class: 'row', style: 'gap:6px;flex-wrap:nowrap;justify-content:space-between;align-items:center' }, tag, act))));
+    if (v) tb.append(h('tr', { class: 'ai why' }, h('td', {}), h('td', { colSpan: 4 }, h('b', {}, 'Begründung '), v.begruendung)));
+    else if (r && r.ziel === 'obs.wert' && r.anzeige) tb.append(h('tr', { class: 'why' }, h('td', {}), h('td', { colSpan: 4 }, r.anzeige)));
+  });
+  wrap.append(h('table', { class: 'map' }, h('thead', {}, h('tr', {}, ['#', 'Quelle', 'Ziel · FHIRPath', 'Terminologie / Einheit', 'Status'].map(x => h('th', {}, x)))), tb));
+  wrap.append(h('p', { class: 'pad mut', style: 'margin:0' }, 'Werte und Einheiten werden unverändert aus der Quelle übernommen. Es wird nichts umgerechnet.'));
+  return wrap;
 }
 
 function paneOut() {
   const L = S.lauf, t = S.task, body = h('div', { class: 'pb' });
   if (!L) body.append(h('div', { class: 'pad mut' }, 'Hier erscheint das FHIR-Bundle.'));
   else if (S.tabO === 'json') {
-    if (L.bundle) { const pre = h('pre', { class: 'code' }); pre.innerHTML = jsonHtml(L.bundle); body.append(pre); }
+    if (L.bundle) { const pre = h('pre', { class: 'code' }); pre.innerHTML = jsonHtml(L.bundle_text || L.bundle); body.append(pre); }
     else body.append(h('div', { class: 'pad' }, h('span', { class: 'tag fehler' }, 'Kein Bundle'), h('p', { class: 'mut' }, 'Erst die Fehler unter „Befunde“ beheben.')));
   } else {
     const fh = L.befunde.filter(b => b.code.startsWith('FHIR_'));
@@ -278,9 +324,12 @@ function drawMain() {
     const mv = ev => { const d = Math.max(-wa + 160, Math.min(wb - 160, ev.clientX - x0)); P.style.setProperty(a, (wa + d) + 'px'); P.style.setProperty(b, (wb - d) + 'px'); };
     s.addEventListener('pointermove', mv); s.addEventListener('pointerup', () => s.removeEventListener('pointermove', mv), { once: true }); }); return s; };
   const panes = h('div', { class: 'panes' }, paneSource(), split(0, '--c1', '--c2'), paneMap(), split(1, '--c2', '--c3'), paneOut());
-  if (S.cols) panes.style.cssText = S.cols; new MutationObserver(() => S.cols = panes.style.cssText).observe(panes, { attributes: true, attributeFilter: ['style'] });
+  if (S.cols) panes.style.cssText = S.cols; else if (L && L.modus === 'felder') panes.style.cssText = '--c1:.75fr;--c2:1.9fr;--c3:1fr'; new MutationObserver(() => S.cols = panes.style.cssText).observe(panes, { attributes: true, attributeFilter: ['style'] });
   main.append(panes);
-  if (L) { const c = k => L.befunde.filter(b => b.stufe === k).length, ki = L.bloecke.filter(b => b.methode === 'ki').length, z = L.bloecke.reduce((n, b) => n + b.zeilen.filter(x => x.text.trim()).length, 0);
+  if (L && L.modus === 'felder') { const c = k => L.befunde.filter(b => b.stufe === k).length, zu = L.spalten.filter(x => x.regel).length, vo = L.spalten.filter(x => x.vorschlag && !x.regel).length;
+    const it = (cls, n, label) => h('span', {}, h('span', { class: 'dot ' + cls }), h('b', {}, String(n)), ' ' + label);
+    main.append(h('div', { class: 'status', role: 'status' }, h('span', {}, h('b', {}, zu + ' / ' + L.spalten.length), ' Spalten zugeordnet'), it('ki', vo, 'Vorschläge'), it('fehler', c('fehler'), 'Fehler'), it('pruefen', c('pruefen'), 'zu prüfen'), h('span', {}, h('b', {}, String(L.roh.gesamt)), ' Zeilen · ', h('b', {}, String(L.bundles)), ' Bundles'), h('span', { style: 'flex:1' }), h('span', {}, 'Modell: ' + (L.modell || 'keins')))); }
+  else if (L) { const c = k => L.befunde.filter(b => b.stufe === k).length, ki = L.bloecke.filter(b => b.methode === 'ki').length, z = L.bloecke.reduce((n, b) => n + b.zeilen.filter(x => x.text.trim()).length, 0);
     const it = (cls, n, label) => h('span', {}, h('span', { class: 'dot ' + cls }), h('b', {}, String(n)), ' ' + label);
     main.append(h('div', { class: 'status', role: 'status' }, h('span', {}, 'Vorlage ', h('b', {}, L.vorlage.name)), h('span', {}, h('b', {}, String(L.bloecke.length)), ' Blöcke · ', h('b', {}, String(z)), ' Zeilen'),
       it('fehler', c('fehler'), 'Fehler'), it('pruefen', c('pruefen'), 'zu prüfen'), it('ki', ki, 'Vorschläge'), it('ok', c('info'), 'erledigt'), h('span', { style: 'flex:1' }), h('span', {}, 'Modell: ' + (L.modell || 'keins')))); }

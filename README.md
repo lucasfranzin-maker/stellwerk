@@ -38,6 +38,7 @@ Rückgabewert: `0` OK, `1` zu prüfen, `2` Fehler.
 - **Aufgabe:** Quelle (Datei oder SQL-Abfrage), Zuordnung und FHIR-Bundle stehen nebeneinander.
 - **Zuordnung ändern:** Zielabschnitt je Überschrift wählen; das gilt dann für diese Aufgabe. Vorschläge des Modells lassen sich übernehmen oder ablehnen.
 - **Kopfdaten:** Werte aus der Quelle je Aufgabe überschreiben.
+- **Feld-Mapping (SQL):** Spalten einer Abfrage auf `Patient` und `Observation` abbilden. Vorschläge nach Spaltennamen (und optional vom lokalen Modell) stehen als eigene Zeile mit Begründung und werden erst nach „Übernehmen“ wirksam.
 - **Ausgabe:** Bundle laden oder in den Abholordner des Kommunikationsservers legen.
 
 Projekte und Quelldateien liegen im Ordner `arbeitsbereich/` auf dem Rechner, auf dem der Dienst läuft.
@@ -109,7 +110,9 @@ Anbindung an Cloverleaf: [docs/cloverleaf.md](docs/cloverleaf.md).
 - Kopfzeilen, die nur auf einer Folgeseite stehen, werden nicht als Kopfzeile erkannt und landen im Abschnitt.
 - Numerische `OBX` werden als Textzeilen übernommen, nicht als Observation.
 - Der HTTP-Dienst und die Workbench haben keine Anmeldung und keine Benutzerverwaltung.
-- Die Workbench bildet Dokumente auf Composition-Abschnitte ab. Feld-Mapping auf Patient/Observation, Regelwerk und Terminologie gibt es noch nicht.
+- Das Feld-Mapping kennt eine feste Liste von Zielfeldern (Patient, Fallbezug, Laborwert mit LOINC, Einheit, Zeitpunkt) und erzeugt je Zeile eine Transaktion. Es gibt kein freies Regelwerk, keinen Terminologieserver und keine MII-Profilangabe.
+- Werte werden nie umgerechnet. Nicht-numerische Werte wie `<0,6` stehen als Text im Bundle; gemischte Einheiten werden gemeldet.
+- Die LOINC-Vorschlagsliste ist klein (neun Laborwerte) und nicht gegen eine aktuelle LOINC-Version geprüft.
 - Für Mirth gibt es keinen eigenen Export; es bekommt dasselbe FHIR-Bundle über Abholordner oder HTTP.
 
 ## Datenschutz

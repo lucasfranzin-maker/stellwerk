@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 from importlib import resources
 
 from . import __version__, workbench
+from .fieldmap import dump_json
 from .pipeline import deliver, ingest, make_llm, process, write_outputs
 from .report import render_html, to_json
 from .sections import list_templates
@@ -67,7 +68,7 @@ def make_handler(cfg: dict, outdir: str):
             self.wfile.write(body)
 
         def _json(self, code: int, obj: dict):
-            self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
+            self._send(code, dump_json(obj).encode("utf-8"), "application/json; charset=utf-8")
 
         def log_message(self, fmt, *args):                       # keine Patientendaten ins Log
             pass

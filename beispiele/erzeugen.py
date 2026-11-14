@@ -185,6 +185,13 @@ def kis_db(path: Path) -> None:
                 ("DOK-2026-000818", "4711002", "2026004712", "A", "Beispiel", "Hans", "03.02.1951", "M",
                  "13.11.2026", "Dr. med. Jonas Muster", "Z. n. Synkope unklarer Genese (R55)", "Patient kam nach einmaligem Kollaps.",
                  "Unauffälliger Verlauf am Monitor.", "Keine Dauermedikation", "Langzeit-EKG ambulant.", ""))
+    con.execute("""CREATE TABLE PAT_LAB_RESULTS (auftrag_nr TEXT, pat_id TEXT, fall_nr TEXT, nachname TEXT, vorname TEXT, geb_datum TEXT,
+                   geschlecht TEXT, abnahme_zeit TEXT, krea_wert TEXT, krea_einheit TEXT, kalium TEXT, crp TEXT, hb_wert TEXT, kommentar TEXT)""")
+    lab = [("A26-0001", "4711001", "2026004711", "Mustermann", "Erika", "12.08.1964", "W", "06.11.2026 07:40", "1,10", "mg/dl", "4,1", "148,0", "13,2", ""),
+           ("A26-0002", "4711001", "2026004711", "Mustermann", "Erika", "12.08.1964", "W", "11.11.2026 07:35", "0,90", "mg/dl", "4,4", "21,0", "12,9", "Kontrolle"),
+           ("A26-0003", "4711002", "2026004712", "Beispiel", "Hans", "03.02.1951", "M", "13.11.2026 08:10", "97", "µmol/l", "3,9", "<0,6", None, ""),
+           ("A26-0004", "4711003", "2026004713", "Muster", "Kim", "21.05.1990", "X", "13.11.2026 09:02", "0,84", "mg/dl", None, "3,2", "14,8", "")]
+    con.executemany("INSERT INTO PAT_LAB_RESULTS VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", lab)
     con.commit()
     con.close()
 

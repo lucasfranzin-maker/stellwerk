@@ -9,6 +9,7 @@ import json
 import re
 from pathlib import Path
 
+from . import fieldmap
 from .model import FEHLER
 from .pdftext import _ICD_VERLESEN
 from .pipeline import _atomic, _safe, ingest, make_llm, process
@@ -18,7 +19,8 @@ from .textrepair import decode_bytes
 
 _ID = re.compile(r"^[a-z0-9]{6,32}$")
 _META = ("patient_id", "encounter_id", "doc_id", "doc_date", "author", "title", "family", "given", "birth_date")
-VORGABE = {"art": "datei", "vorlage": "", "meta": {}, "aliase": {}, "db": "", "abfrage": "", "dokument": 0, "ablage": ""}
+VORGABE = {"art": "datei", "vorlage": "", "meta": {}, "aliase": {}, "db": "", "abfrage": "", "dokument": 0, "ablage": "",
+           "modus": "dokument", "felder": {"regeln": {}, "abgelehnt": [], "status": ""}}
 
 
 class ApiError(Exception):
@@ -72,6 +74,15 @@ class Workspace:
         t["meta"] = {k: str(v).strip() for k, v in (t["meta"] or {}).items() if k in _META and str(v).strip()}
         t["aliase"] = {str(k)[:120]: str(v) for k, v in (t["aliase"] or {}).items()}
         t["dokument"] = int(t["dokument"] or 0)
+        if t["modus"] not in ("dokument", "felder"):
+            raise ApiError(400, "modus muss dokument oder felder sein.")
+        fd = t["felder"] or {}
+        keys = {k for k, _, _ in fieldmap.ZIELE}
+        t["felder"] = {
+            "regeln": {str(c)[:120]: {k: str(v)[:200] for k, v in r.items() if k in ("ziel", "loinc", "anzeige", "fuer", "einheit")}
+                       for c, r in (fd.get("regeln") or {}).items() if isinstance(r, dict) and r.get("ziel") in keys},
+            "abgelehnt": [str(c)[:120] for c in fd.get("abgelehnt") or []],
+            "status": str(fd.get("status") or "")}
         _atomic(self.dir(tid) / "aufgabe.json", json.dumps(t, ensure_ascii=False, indent=1).encode("utf-8"))
         return self.task(tid)
 
@@ -83,9 +94,52 @@ class Workspace:
         (d / "quelle.name").write_text(_safe(name), "utf-8")
 
     # --- Lauf
+    def _query(self, t: dict):
+        from .sqlsource import SqlError, run_query
+        if not t["db"] or not t["abfrage"].strip():
+            raise ApiError(400, "Datenbankadresse und Abfrage eintragen.")
+        try:
+            return run_query(t["db"], t["abfrage"], 500)
+        except SqlError as exc:
+            raise ApiError(400, str(exc)) from exc
+
+    def run_fields(self, tid: str, cfg: dict) -> dict:
+        """Feld-Mapping: Spalten -> Patient und Observation."""
+        t = self.task(tid)
+        d = self.dir(tid)
+        cols, rows = self._query(t)
+        fd = t["felder"]
+        bundles, findings, labels = fieldmap.build(cols, rows, fd["regeln"], cfg, fd["status"])
+        samples = {c: list(dict.fromkeys(str(r[i]) for r in rows if r[i] not in (None, "")))[:4] for i, c in enumerate(cols)}
+        llm, note = make_llm(cfg)
+        vor = fieldmap.suggest(cols, fd["regeln"], fd["abgelehnt"], llm, samples)
+        n = min(max(t["dokument"], 0), max(len(rows) - 1, 0))
+        bundle = bundles[n] if bundles else None
+        fehler = any(x.severity == FEHLER for x in findings)
+        if bundle and not fehler:
+            _atomic(d / "bundle.json", fieldmap.dump_json(bundle, indent=1).encode("utf-8"))
+        elif (d / "bundle.json").exists():
+            (d / "bundle.json").unlink()
+        status = "fehler" if fehler else "pruefen" if any(x.severity == "pruefen" for x in findings) or vor else "ok"
+        return {
+            "modus": "felder", "status": status, "satz": STATUS_SATZ[status], "modell": llm.label if llm else note, "art": "sql",
+            "dokumente": labels, "dokument": n, "bloecke": [], "kopf": {}, "vorlage": {"name": "Feld-Mapping", "abschnitte": []},
+            "roh": {"spalten": cols, "zeilen": [["" if c is None else str(c)[:300] for c in r] for r in rows[:50]], "gesamt": len(rows)},
+            "ziele": [{"key": k, "pfad": p, "text": x} for k, p, x in fieldmap.ZIELE],
+            "spalten": [{"name": c, "beispiele": samples[c], "regel": fd["regeln"].get(c), "vorschlag": vor.get(c),
+                         "abgelehnt": c in fd["abgelehnt"]} for c in cols],
+            "feldstatus": fd["status"], "bundles": sum(1 for b in bundles if b),
+            "befunde": [{"code": x.code, "stufe": x.severity, "wo": x.where, "meldung": x.message, "was_tun": x.action,
+                         "detail": x.detail} for x in findings],
+            "bundle": bundle if not fehler else None,
+            "bundle_text": fieldmap.dump_json(bundle, indent=2) if bundle and not fehler else "",
+        }
+
     def run(self, tid: str, cfg: dict) -> dict:
         t = self.task(tid)
         d = self.dir(tid)
+        if t["art"] == "sql" and t["modus"] == "felder":
+            return self.run_fields(tid, cfg)
         try:
             tpl = load_template(t["vorlage"] or cfg.get("vorlage", "entlassbrief"))
         except FileNotFoundError as exc:
@@ -96,13 +150,8 @@ class Workspace:
                 tpl._ocr[ocr_key(heading)] = key
         roh: dict = {}
         if t["art"] == "sql":
-            from .sqlsource import SqlError, docs_from_rows, run_query
-            if not t["db"] or not t["abfrage"].strip():
-                raise ApiError(400, "Datenbankadresse und Abfrage eintragen.")
-            try:
-                cols, rows = run_query(t["db"], t["abfrage"], 500)
-            except SqlError as exc:
-                raise ApiError(400, str(exc)) from exc
+            from .sqlsource import docs_from_rows
+            cols, rows = self._query(t)
             docs = docs_from_rows(cols, rows, {}, tpl, cfg, "Abfrage")
             for doc in docs:
                 for k, v in t["meta"].items():
@@ -147,8 +196,27 @@ class Workspace:
             "bundle": res.bundle if not any(f.severity == FEHLER for f in res.findings) else None,
         }
 
-    def export(self, tid: str, ordner: str) -> dict:
+    def export(self, tid: str, ordner: str, cfg: dict | None = None) -> dict:
         d = self.dir(tid)
+        t = self.task(tid)
+        if t["art"] == "sql" and t["modus"] == "felder":
+            if not ordner.strip():
+                raise ApiError(400, "Abholordner eintragen.")
+            cols, rows = self._query(t)
+            bundles, findings, _ = fieldmap.build(cols, rows, t["felder"]["regeln"], cfg or {}, t["felder"]["status"])
+            if any(x.severity == FEHLER for x in findings):
+                raise ApiError(409, "Kein zustellbares Bundle. Erst die Fehler beheben.")
+            target = Path(ordner)
+            try:
+                target.mkdir(parents=True, exist_ok=True)
+                n = 0
+                for i, b in enumerate(bundles, 1):
+                    if b:
+                        _atomic(target / f"{_safe(tid)}-zeile-{i:05d}.json", fieldmap.dump_json(b, indent=1).encode("utf-8"))
+                        n += 1
+            except OSError as exc:
+                raise ApiError(400, f"Ablage fehlgeschlagen: {exc}") from exc
+            return {"datei": f"{n} Bundles in {target}"}
         if not (d / "bundle.json").exists():
             raise ApiError(409, "Kein zustellbares Bundle. Erst ausführen und Fehler beheben.")
         if not ordner.strip():
@@ -191,7 +259,7 @@ def handle(ws: Workspace, cfg: dict, method: str, path: str, query: dict, body: 
         if rest == ["lauf"] and method == "POST":
             return 200, ws.run(tid, cfg)
         if rest == ["ablegen"] and method == "POST":
-            return 200, ws.export(tid, js().get("ordner", ""))
+            return 200, ws.export(tid, js().get("ordner", ""), cfg)
         if rest == ["bundle"] and method == "GET":
             p = ws.dir(tid) / "bundle.json"
             if not p.exists():
