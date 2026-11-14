@@ -1,0 +1,5 @@
+# Konfiguration für die Beispiele. Die Namensräume sind erfunden.
+systeme:
+  patient: https://fhir.klinikum-musterstadt.example/sid/patientennummer
+  fall: https://fhir.klinikum-musterstadt.example/sid/aufnahmenummer
+  dokument: https://fhir.klinikum-musterstadt.example/sid/dokumentnummer

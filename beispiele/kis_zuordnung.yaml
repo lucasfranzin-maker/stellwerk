@@ -1,0 +1,12 @@
+# Beispiel: Arztbriefe aus einer KIS-ähnlichen Tabelle, je Abschnitt eine Spalte.
+quelle:
+  db: sqlite:///kis.db
+  abfrage: |
+    SELECT DOKNR, PATNR, FALLNR, FALLART, NACHNAME, VORNAME, GEBDAT, GESCHLECHT, DOKDATUM, ARZT,
+           DIAGNOSEN, ANAMNESE_TXT, EPIKRISE, MEDIKATION, EMPFEHLUNG, INTERN_VERMERK
+    FROM ARZTBRIEF ORDER BY DOKNR
+vorlage: entlassbrief
+# Was Stellwerk am Spaltennamen erkennt, muss hier nicht stehen.
+# Nur Abweichungen festschreiben:
+spalten: {}
+abschnitte: {}

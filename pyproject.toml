@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stellwerk"
+version = "0.1.0"
+description = "HL7 v2, SQL und PDF robust in FHIR-Compositions (ISiK) überführen, mit lokalem LLM und Prüfbericht"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "PyYAML>=6",
+  "pypdf>=4",
+]
+
+[project.optional-dependencies]
+# Texterkennung für gescannte PDFs. Braucht zusätzlich die Programme
+# tesseract (mit Sprachpaket deu) und poppler (pdftoppm).
+ocr = ["pytesseract>=0.3.10", "pdf2image>=1.16", "Pillow>=10", "numpy>=1.24"]
+# Andere Datenbanken als SQLite (Treiber wie oracledb oder pyodbc kommen dazu).
+sql = ["SQLAlchemy>=2"]
+dev = ["pytest>=8", "reportlab>=4", "fhir.resources>=7.1"]
+
+[project.scripts]
+stellwerk = "stellwerk.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+stellwerk = ["vorlagen/*.yaml", "*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

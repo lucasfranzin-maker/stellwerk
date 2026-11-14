@@ -1,0 +1,42 @@
+# Konfiguration für Stellwerk. Diese Datei als stellwerk.yaml ins Arbeitsverzeichnis legen.
+
+# Namensräume des Hauses. Ohne sie findet das Zielsystem Patient und Fall nicht.
+systeme:
+  patient:    # z. B. https://fhir.klinikum-musterstadt.example/sid/patientennummer
+  fall:       # z. B. https://fhir.klinikum-musterstadt.example/sid/aufnahmenummer
+  dokument:   # z. B. https://fhir.klinikum-musterstadt.example/sid/dokumentnummer
+
+# Vorlage, wenn die Quelle keinen Dokumenttyp nennt, und Zuordnung Dokumenttyp -> Vorlage.
+vorlage: entlassbrief
+vorlagen_zuordnung: {}        # z. B. {EB: entlassbrief, RAD: befundbericht}  (TXA-2 bzw. OBR-4)
+
+# isik-dokument: Dokument-Bundle nach ISiKBerichtBundle (POST an die Basisadresse des Zielsystems)
+# transaktion:   Transaktion für ein CDR (Patient/Fall nur anlegen, wenn unbekannt; Dokument ersetzen)
+ziel: isik-dokument
+zeitzone: Europe/Berlin
+
+standard:
+  fallart:    # stationaer | ambulant | notfall, falls die Quelle es nicht sagt
+  autor:      # z. B. Name des liefernden Subsystems
+
+ocr:
+  modus: auto               # auto | immer | nie
+  sprache: deu
+  dpi: 300
+  seite_warnen_unter: 75    # mittlere Erkennungssicherheit einer Seite in Prozent
+  zahl_warnen_unter: 80     # Zeilen mit Zahlen unter diesem Wert werden einzeln gemeldet
+
+# Lokales Sprachmodell. Es schlägt nur Zuordnungen vor und schreibt keinen Text.
+llm:
+  modell: ""                # leer = ohne Modell arbeiten
+  url: http://localhost:11434
+  api: ollama               # ollama | openai (llama.cpp, vLLM, LM Studio und andere)
+  timeout: 120
+  nur_lokal: true           # Adressen außerhalb des lokalen Netzes werden abgelehnt
+  erlaubte_hosts: []
+
+zustellung:
+  ziel:                     # Ordner (den der Kommunikationsserver abholt) oder http(s)-Adresse
+  bei_pruefen: zurueckhalten   # zurueckhalten | zustellen
+
+ausgabe: out

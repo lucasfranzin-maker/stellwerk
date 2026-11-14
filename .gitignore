@@ -1,0 +1,15 @@
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.venv/
+build/
+dist/
+
+# Ausgaben und Eingänge enthalten im Betrieb Patientendaten: nie einchecken.
+out/
+spool/
+eingang/
+stellwerk.yaml
+*.local.yaml
+
+!beispiele/stellwerk.yaml

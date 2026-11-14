@@ -1,0 +1,43 @@
+# Vorlage Befundbericht (Radiologie, Funktionsdiagnostik, Konsil).
+name: befundbericht
+titel: Befundbericht
+typ:
+  # Kein KDL-Code voreingestellt: passenden Code der eigenen Dokumentenklasse eintragen.
+  kdl: ""
+  anzeige: Befundbericht
+abschnitte:
+  - key: anschreiben
+    titel: Kopf
+    rolle: kopf
+    beschreibung: Briefkopf, Anrede, Untersuchungsdatum
+  - key: fragestellung
+    titel: Fragestellung
+    aliase: [Fragestellung, Klinische Fragestellung, Klinische Angaben, Indikation, Anforderung, Klinik]
+    beschreibung: Warum die Untersuchung angefordert wurde
+  - key: technik
+    titel: Untersuchungstechnik
+    aliase: [Technik, Methode, Untersuchungstechnik, Durchführung, Untersuchung]
+    beschreibung: Wie untersucht wurde, Gerät, Kontrastmittel
+  - key: befund
+    titel: Befund
+    pflicht: true
+    aliase: [Befund, Befunde, Befundung, Beschreibung]
+    beschreibung: Was gesehen oder gemessen wurde
+  - key: beurteilung
+    titel: Beurteilung
+    pflicht: true
+    aliase: [Beurteilung, Zusammenfassung, Ergebnis, Diagnose, Zusammenfassende Beurteilung]
+    beschreibung: Schlussfolgerung des Befunders
+  - key: empfehlung
+    titel: Empfehlung
+    aliase: [Empfehlung, Empfehlungen, Procedere, Weiteres Vorgehen]
+    beschreibung: Empfohlene nächste Schritte
+  - key: schluss
+    titel: Grußformel und Unterschrift
+    rolle: schluss
+    beginnt_mit: ['(?i)^mit (?:freundlichen|kollegialen|besten)', '(?i)^hochachtungsvoll']
+    beschreibung: Grußformel und Unterschrift
+  - key: weitere
+    titel: Weitere Angaben
+    rolle: rest
+    beschreibung: Passt zu keinem anderen Abschnitt

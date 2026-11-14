@@ -1,0 +1,95 @@
+# Vorlage Entlassbrief / Arztbrief.
+# Jeder Abschnitt hat Aliase: Überschriften, unter denen er in echten Briefen steht.
+# Neue Schreibweisen hier ergänzen; der Prüfbericht schlägt die passende Zeile vor.
+name: entlassbrief
+titel: Entlassbrief
+typ:
+  # KDL-Code vor dem Produktivbetrieb gegen die aktuelle KDL-Version prüfen.
+  kdl: AD010103
+  anzeige: Entlassungsbericht intern
+abschnitte:
+  - key: anschreiben
+    titel: Anschreiben
+    rolle: kopf            # alles vor der ersten erkannten Überschrift
+    beschreibung: Briefkopf, Empfänger, Anrede, einleitender Satz
+  - key: diagnosen
+    titel: Diagnosen
+    pflicht: true
+    loinc: "11535-2"
+    loinc_anzeige: Hospital discharge Dx Narrative
+    aliase: [Diagnose, Diagnosen, Hauptdiagnose, Hauptdiagnosen, Nebendiagnose, Nebendiagnosen,
+             Entlassdiagnose, Entlassdiagnosen, Entlassungsdiagnosen, Aktuelle Diagnosen,
+             Diagnosen bei Entlassung, Behandlungsdiagnosen, Weitere Diagnosen]
+    beschreibung: Haupt- und Nebendiagnosen, oft als Liste, oft mit ICD-10-Codes
+    signale: ['\b[A-TV-Z]\d{2}(?:\.\d{1,2})?\b', '(?i)\bZ\. ?n\.', '(?i)\bV\. ?a\.']
+  - key: allergien
+    titel: Allergien und Unverträglichkeiten
+    loinc: "48765-2"
+    loinc_anzeige: Allergies and adverse reactions Document
+    aliase: [Allergien, Allergie, Allergien und Unverträglichkeiten, Unverträglichkeiten, CAVE]
+    beschreibung: Bekannte Allergien, Unverträglichkeiten, Warnhinweise
+    signale: ['(?i)allergi', '(?i)unverträglich']
+  - key: anamnese
+    titel: Anamnese
+    loinc: "10164-2"
+    loinc_anzeige: History of Present illness Narrative
+    aliase: [Anamnese, Aktuelle Anamnese, Eigenanamnese, Jetzige Anamnese, Vorgeschichte, Aufnahmeanlass,
+             Aufnahmegrund, Sozialanamnese, Familienanamnese, Vegetative Anamnese, Medikamentenanamnese]
+    beschreibung: Warum der Patient kam, Beschwerden, Vorgeschichte
+    signale: ['(?i)stellte sich .{0,40}vor', '(?i)aufnahme erfolgte', '(?i)berichtet']
+  - key: befund
+    titel: Untersuchungsbefund
+    loinc: "29545-1"
+    loinc_anzeige: Physical findings Narrative
+    aliase: [Befund, Befunde, Aufnahmebefund, Untersuchungsbefund, Körperlicher Untersuchungsbefund,
+             Klinischer Befund, Körperliche Untersuchung, Klinische Untersuchung, Status bei Aufnahme]
+    beschreibung: Körperliche Untersuchung, Vitalwerte bei Aufnahme
+    signale: ['(?i)\bRR\b', '(?i)auskultat', '(?i)\bAZ\b', '(?i)abdomen']
+  - key: diagnostik
+    titel: Diagnostik
+    loinc: "30954-2"
+    loinc_anzeige: Relevant diagnostic tests/laboratory data Narrative
+    aliase: [Diagnostik, Labor, Laborwerte, Laborbefunde, Bildgebung, Apparative Diagnostik,
+             Technische Untersuchungen, EKG, Röntgen, Sonographie, Echokardiographie, Histologie, Mikrobiologie]
+    beschreibung: Labor, Bildgebung, EKG und andere apparative Untersuchungen
+    signale: ['(?i)mg/dl|mmol/l|g/dl|U/l', '(?i)sinusrhythmus', '(?i)röntgen|sonograph|\bCT\b|\bMRT\b']
+  - key: therapie
+    titel: Therapie und Eingriffe
+    loinc: "47519-4"
+    loinc_anzeige: History of Procedures Document
+    aliase: [Therapie, Prozeduren, Operation, Operationen, Eingriffe, Durchgeführte Maßnahmen, Durchgeführte Eingriffe]
+    beschreibung: Durchgeführte Operationen, Eingriffe und Behandlungen
+    signale: ['(?i)operation|eingriff|implantation', '\b\d-\d{3}(?:\.\w{1,2})?\b']
+  - key: verlauf
+    titel: Verlauf
+    loinc: "8648-8"
+    loinc_anzeige: Hospital course Narrative
+    aliase: [Verlauf, Epikrise, Therapie und Verlauf, Stationärer Verlauf, Verlauf und Beurteilung,
+             Zusammenfassung, Beurteilung, Zusammenfassende Beurteilung, Zusammenfassung und Beurteilung]
+    beschreibung: Was während des Aufenthalts geschah und wie es beurteilt wird
+    signale: ['(?i)im verlauf', '(?i)komplikationslos', '(?i)entlassen wir']
+  - key: medikation
+    titel: Medikation bei Entlassung
+    loinc: "10183-2"
+    loinc_anzeige: Hospital discharge medications Narrative
+    aliase: [Medikation, Entlassmedikation, Entlassungsmedikation, Medikation bei Entlassung,
+             Aktuelle Medikation, Medikamente, Medikationsplan]
+    beschreibung: Medikamente mit Dosierung, meist als Liste mit Schema wie 1-0-1
+    signale: ['\b\d(?:[.,/]\d)?\s?-\s?\d(?:[.,/]\d)?\s?-\s?\d', '(?i)\b\d+(?:[.,]\d+)?\s?(?:mg|µg|ml|IE)\b']
+  - key: empfehlung
+    titel: Empfehlung
+    loinc: "18776-5"
+    loinc_anzeige: Plan of care note
+    aliase: [Empfehlung, Empfehlungen, Procedere, Prozedere, Weiteres Vorgehen, Weiteres Procedere,
+             Therapieempfehlung, Therapieempfehlungen, Weiterbehandlung, Nachsorge]
+    beschreibung: Was nach der Entlassung geschehen soll, Kontrollen, Termine
+    signale: ['(?i)wir empfehlen|wir bitten|kontrolle|wiedervorstellung']
+  - key: schluss
+    titel: Grußformel und Unterschrift
+    rolle: schluss         # beginnt bei der Grußformel und reicht bis zum Ende
+    beginnt_mit: ['(?i)^mit (?:freundlichen|kollegialen|besten)', '(?i)^hochachtungsvoll']
+    beschreibung: Grußformel, Namen und Funktionen der Unterzeichnenden
+  - key: weitere
+    titel: Weitere Angaben
+    rolle: rest            # alles, was sich nicht zuordnen lässt; nichts geht verloren
+    beschreibung: Passt zu keinem anderen Abschnitt
