@@ -80,8 +80,8 @@ The AI assists interface developers in analyzing unknown SQL schemas or HL7 feed
 ---
 
 ## 7a. Workbench decisions (2026-11-14, supersede conflicting rules above)
-- Chosen direction is a **mix**: dark navy sidebar for the project explorer (`--nav: #0F1B2D`), everything else follows Sections 2–4 (zinc surfaces, hairlines, density, mono for data). Accent is **cobalt**, not teal.
-- Hairline border is `#E4E4E7` (zinc-200); the `#E4E4F7` above is a typo.
+- Visual reference is the Emergent mockup v3 (design orientation only; its code, data and FHIR examples are not adopted): navy navigation `#0B1526`, **petrol** accent `#0E7490`, work areas as cards (10px radius, subtle panel shadow) on canvas `#F3F5F8`. Inside cards everything stays dense, hairline-separated and shadow-free (tables, JSON, mapping, tree). Mono for all data.
+- Tokens live as CSS custom properties at the top of `src/stellwerk/web/index.html`; they supersede the colour values in Section 3.
 - The workbench is **one HTML file without a build step** (`src/stellwerk/web/index.html`), served by the Python service. No CDN, no web fonts, no Node: it must run in an air-gapped hospital network. Icons are inline Lucide paths.
 - Layout: explorer tree (user-defined folders and tasks) | source | mapping | FHIR output. Model proposals appear inline in the mapping pane with Accept/Reject, never as chat.
 
