@@ -296,3 +296,19 @@ def build(columns: list[str], rows: list[tuple], rules: dict, cfg: dict, status:
                          f"{zahl(datum_kaputt, 'Datumswert ließ', 'Datumswerte ließen')} sich nicht lesen und fehlt/fehlen im Bundle.",
                          "Format der Spalte prüfen (erwartet z. B. 12.11.2026 14:15 oder 2026-11-12)."))
     return bundles, f, labels
+
+
+def profile(columns: list[str], rows: list[tuple]) -> dict[str, dict]:
+    """Spaltenprofil über die gelesenen Zeilen: Leeranteil, verschiedene Werte, häufigste Werte, Anteil reiner Zahlen."""
+    out: dict[str, dict] = {}
+    for i, col in enumerate(columns):
+        vals = ["" if r[i] is None else str(r[i]).strip() for r in rows]
+        filled = [v for v in vals if v]
+        counts: dict[str, int] = {}
+        for v in filled:
+            counts[v] = counts.get(v, 0) + 1
+        top = sorted(counts.items(), key=lambda x: (-x[1], x[0]))[:6]
+        out[col] = {"zeilen": len(vals), "leer": len(vals) - len(filled), "verschieden": len(counts),
+                    "zahlen": sum(1 for v in filled if _ZAHL.match(v)),
+                    "haeufig": [{"wert": v[:60], "anzahl": n} for v, n in top]}
+    return out

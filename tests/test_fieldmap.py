@@ -64,3 +64,10 @@ def test_workbench_feldmodus(bsp, cfg, tmp_path):
     out = call("POST", "aufgabe/task000003/ablegen", {"ordner": str(tmp_path / "ab")})
     files = sorted((tmp_path / "ab").iterdir())
     assert out["datei"].startswith("4 Bundles") and len(files) == 4 and '"value": 1.10' in files[0].read_text("utf-8")
+
+
+def test_spaltenprofil(bsp):
+    cols, rows = run_query(f"sqlite:///{bsp / 'kis.db'}", Q)
+    p = fieldmap.profile(cols, rows)
+    assert p["hb_wert"]["leer"] == 1 and p["hb_wert"]["zeilen"] == 4 and p["crp"]["zahlen"] == 3
+    assert p["krea_einheit"]["verschieden"] == 2 and p["krea_einheit"]["haeufig"][0] == {"wert": "mg/dl", "anzahl": 3}

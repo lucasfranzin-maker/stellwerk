@@ -70,7 +70,14 @@ pre.code span.l::before{counter-increment:l;content:counter(l);position:absolute
 pre.code span.l:hover{background:var(--hover)}
 .k{color:var(--jk);font-weight:500}.s{color:var(--js)}.n{color:var(--jn)}
 .seg3{color:var(--acc);font-weight:600}
-table.map{border-collapse:collapse;width:100%;table-layout:fixed;min-width:640px}table.map th:nth-child(1){width:30px}table.map th:nth-child(2){width:18%}table.map th:nth-child(3){width:24%}table.map th:nth-child(4){width:19%}table.map td{overflow:hidden}table.map tr.why td{white-space:normal;overflow-wrap:anywhere}table.map th{position:sticky;top:0;z-index:1;background:var(--sub);text-align:left;height:32px;padding:0 8px;border-bottom:1px solid var(--line);font-size:12px;font-weight:600;color:var(--mut);white-space:nowrap}
+.colrow{display:grid;grid-template-columns:10px minmax(0,auto) minmax(0,1fr) auto;gap:8px;align-items:center;width:100%;height:30px;padding:0 12px;border:0;border-bottom:1px solid var(--line);background:none;text-align:left;cursor:pointer}
+.colrow:hover{background:var(--hover)}.colrow.sel{background:var(--hover);box-shadow:inset 2px 0 0 var(--acc)}.colrow .cn{font:500 12px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.colrow .ct{font:11px var(--mono);color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.colrow .cm{font:11px var(--mono);color:var(--warn);font-variant-numeric:tabular-nums;white-space:nowrap}
+.sq{width:8px;height:8px;border-radius:2px;border:1.5px solid var(--dim)}.sq.ok{background:var(--ok);border-color:var(--ok)}.sq.ki{border-color:var(--ai)}.sq.pruefen{border-color:var(--warn)}.sq.info{background:var(--dim)}
+.profbox{padding:12px;border-top:1px solid var(--line);background:var(--sub);position:sticky;bottom:0}dl.prof{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:0;font-size:12px}dl.prof dt{color:var(--mut)}dl.prof dd{margin:0;text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.chips{display:flex;flex-wrap:wrap;gap:4px}.chip{font:12px var(--mono);padding:1px 6px;border:1px solid var(--line);border-radius:4px;background:var(--panel)}.chip i{font-style:normal;color:var(--dim)}
+table.map tr.cur td{box-shadow:inset 0 1px 0 var(--acc),inset 0 -1px 0 var(--acc)}table.map tr.cur td:first-child{box-shadow:inset 2px 0 0 var(--acc),inset 0 1px 0 var(--acc),inset 0 -1px 0 var(--acc)}
+table.map{border-collapse:collapse;width:100%;table-layout:fixed;min-width:640px}table.map th:nth-child(1){width:30px}table.map th:nth-child(2){width:15%}table.map th:nth-child(3){width:30%}table.map th:nth-child(4){width:15%}table.map td{overflow:hidden}table.map tr.why td{white-space:normal;overflow-wrap:anywhere}table.map th{position:sticky;top:0;z-index:1;background:var(--sub);text-align:left;height:32px;padding:0 8px;border-bottom:1px solid var(--line);font-size:12px;font-weight:600;color:var(--mut);white-space:nowrap}
 table.map td{padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:middle}table.map tr:hover td{background:var(--hover)}
 table.map td.num{font:11px var(--mono);color:var(--dim);font-variant-numeric:tabular-nums;width:28px}table.map .col{font:500 12px var(--mono)}table.map .smp{font:11px var(--mono);color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 table.map select.in{font:12px var(--mono);width:100%;height:28px}table.map input.in{height:28px}
@@ -206,10 +213,32 @@ function paneSource() {
     const q = h('textarea', { class: 'in', value: t.abfrage, placeholder: 'SELECT DOKNR, PATNR, FALLNR, DIAGNOSEN, ... FROM ...', spellcheck: false, onchange: () => { t.abfrage = q.value; } });
     const ms = h('select', { class: 'in', onchange: () => { t.modus = ms.value; t.dokument = 0; S.lauf = null; run(); } }, [['dokument', 'Dokument: Textspalten → Composition'], ['felder', 'Felder: Spalten → Patient, Observation']].map(([k, l]) => h('option', { value: k, selected: t.modus === k }, l)));
     body.append(h('div', { class: 'pad', style: 'display:grid;gap:8px;border-bottom:1px solid var(--line)' }, h('label', { class: 'f' }, 'Datenbank', db), h('label', { class: 'f' }, 'Abfrage (nur SELECT)', q), h('label', { class: 'f' }, 'Ergebnis verarbeiten als', ms)));
-    if (L && L.roh.spalten) body.append(h('div', { class: 'pad mut' }, `${L.roh.gesamt} Zeilen gelesen` + (L.roh.gesamt > 50 ? ', 50 gezeigt' : '') + '.'),
+    if (L && L.modus === 'felder') schemaPane(body);
+    else if (L && L.roh.spalten) body.append(h('div', { class: 'pad mut' }, `${L.roh.gesamt} Zeilen gelesen` + (L.roh.gesamt > 50 ? ', 50 gezeigt' : '') + '.'),
       h('table', { class: 't' }, h('thead', {}, h('tr', {}, L.roh.spalten.map(c => h('th', {}, c)))), h('tbody', {}, L.roh.zeilen.map(r => h('tr', {}, r.map(c => h('td', { title: c }, c)))))));
   }
   return h('section', { class: 'pane', 'aria-label': 'Quelle' }, h('div', { class: 'ph' }, h('h2', {}, 'Quelle'), h('span', { style: 'flex:1' }), seg), body);
+}
+
+function schemaPane(body) {
+  const L = S.lauf, sel = L.spalten.find(c => c.name === S.col);
+  const view = S.srcView || 'spalten';
+  body.append(h('div', { class: 'pad row', style: 'align-items:center;border-bottom:1px solid var(--line)' }, h('span', { class: 'seg', role: 'group', 'aria-label': 'Ansicht' }, [['spalten', 'Spalten'], ['zeilen', 'Zeilen']].map(([k, l]) => h('button', { 'aria-pressed': String(view === k), onclick: () => { S.srcView = k; drawMain(); } }, l))),
+    h('span', { class: 'mut mono' }, L.roh.gesamt + ' Zeilen gelesen' + (L.roh.gesamt >= 500 ? ' (Obergrenze)' : ''))));
+  if (view === 'zeilen') { body.append(h('table', { class: 't' }, h('thead', {}, h('tr', {}, L.roh.spalten.map(c => h('th', {}, c)))), h('tbody', {}, L.roh.zeilen.map(r => h('tr', {}, r.map(c => h('td', { title: c }, c))))))); return; }
+  const art = c => c.regel ? (c.regel.ziel === 'ignorieren' ? ['info', 'ausgelassen'] : ['ok', 'zugeordnet']) : c.vorschlag ? ['ki', 'Vorschlag'] : ['pruefen', 'offen'];
+  const ul = h('div', { class: 'cols', role: 'listbox', 'aria-label': 'Spalten der Abfrage' });
+  L.spalten.forEach(c => { const [cls, label] = art(c), p = c.profil;
+    ul.append(h('button', { class: 'colrow' + (S.col === c.name ? ' sel' : ''), role: 'option', 'aria-selected': String(S.col === c.name), onclick: () => { S.col = S.col === c.name ? null : c.name; S.tabM = 'zuordnung'; drawMain(); const r = document.querySelector('tr[data-col="' + CSS.escape(c.name) + '"]'); if (r) r.scrollIntoView({ block: 'center' }); } },
+      h('span', { class: 'sq ' + cls, title: label }), h('span', { class: 'cn' }, c.name), h('span', { class: 'ct' }, c.regel && c.regel.ziel !== 'ignorieren' ? (L.ziele.find(z => z.key === c.regel.ziel) || {}).pfad : ''),
+      h('span', { class: 'cm' }, p.leer ? Math.round(100 * p.leer / p.zeilen) + ' % leer' : ''))); });
+  body.append(ul);
+  if (sel) { const p = sel.profil, pct = n => p.zeilen ? (100 * n / p.zeilen).toFixed(1).replace('.', ',') + ' %' : '–', filled = p.zeilen - p.leer;
+    const dl = h('dl', { class: 'prof' }); const row = (k, v) => dl.append(h('dt', {}, k), h('dd', {}, v));
+    row('Leer', p.leer + ' von ' + p.zeilen + ' (' + pct(p.leer) + ')'); row('Verschiedene Werte', String(p.verschieden)); row('Reine Zahlen', filled ? p.zahlen + ' von ' + filled : '–');
+    body.append(h('div', { class: 'profbox' }, h('div', { class: 'row', style: 'justify-content:space-between;align-items:center' }, h('b', {}, 'Spaltenprofil'), h('span', { class: 'tag ' + art(sel)[0] }, art(sel)[1])), h('div', { class: 'mono', style: 'margin:4px 0 8px' }, sel.name), dl,
+      h('div', { class: 'mut', style: 'margin:8px 0 4px;font-size:12px' }, 'Häufigste Werte'), h('div', { class: 'chips' }, p.haeufig.length ? p.haeufig.map(x => h('span', { class: 'chip', title: x.anzahl + '×' }, x.wert, h('i', {}, ' ' + x.anzahl + '×'))) : h('span', { class: 'mut' }, 'keine')),
+      h('p', { class: 'mut', style: 'margin:8px 0 0;font-size:12px' }, 'Gerechnet über die gelesenen Zeilen, nicht über die ganze Tabelle.'))); }
 }
 
 function paneMap() {
@@ -282,7 +311,7 @@ function fieldTable() {
     if (v) act.append(h('button', { class: 'btn sm pri', onclick: () => { const { quelle, begruendung, sicherheit, ...rule } = v; setRule(c.name, rule); } }, icon('check'), 'Übernehmen'),
       h('button', { class: 'btn sm', 'aria-label': 'Vorschlag ablehnen', title: 'Vorschlag ablehnen', onclick: () => { t.felder = { ...fd, abgelehnt: [...fd.abgelehnt, c.name] }; run(); } }, icon('x')));
     else if (r) act.append(h('button', { class: 'btn sm', 'aria-label': 'Zuordnung entfernen', title: 'Zuordnung entfernen', onclick: () => setRule(c.name, null) }, icon('x')));
-    tb.append(h('tr', { class: v ? 'ai' : '' }, h('td', { class: 'num' }, String(i + 1).padStart(2, '0')), h('td', {}, h('div', { class: 'col' }, c.name), h('div', { class: 'smp' }, c.beispiele.join(' · ') || 'leer')), h('td', {}, zsel), h('td', {}, par), h('td', {}, h('div', { class: 'row', style: 'gap:6px;flex-wrap:nowrap;justify-content:space-between;align-items:center' }, tag, act))));
+    tb.append(h('tr', { class: (v ? 'ai' : '') + (S.col === c.name ? ' cur' : ''), 'data-col': c.name }, h('td', { class: 'num' }, String(i + 1).padStart(2, '0')), h('td', {}, h('div', { class: 'col' }, c.name), h('div', { class: 'smp' }, c.beispiele.join(' · ') || 'leer')), h('td', {}, zsel), h('td', {}, par), h('td', {}, h('div', { class: 'row', style: 'gap:6px;flex-wrap:nowrap;justify-content:space-between;align-items:center' }, tag, act))));
     if (v) tb.append(h('tr', { class: 'ai why' }, h('td', {}), h('td', { colSpan: 4 }, h('b', {}, 'Begründung '), v.begruendung)));
     else if (r && r.ziel === 'obs.wert' && r.anzeige) tb.append(h('tr', { class: 'why' }, h('td', {}), h('td', { colSpan: 4 }, r.anzeige)));
   });

@@ -38,6 +38,7 @@ Rückgabewert: `0` OK, `1` zu prüfen, `2` Fehler.
 - **Aufgabe:** Quelle (Datei oder SQL-Abfrage), Zuordnung und FHIR-Bundle stehen nebeneinander.
 - **Zuordnung ändern:** Zielabschnitt je Überschrift wählen; das gilt dann für diese Aufgabe. Vorschläge des Modells lassen sich übernehmen oder ablehnen.
 - **Kopfdaten:** Werte aus der Quelle je Aufgabe überschreiben.
+- **Spaltenliste mit Profil:** Im Feld-Mapping zeigt die Quelle jede Spalte mit Zuordnungsstand; ein Klick zeigt Leeranteil, Anzahl verschiedener Werte und die häufigsten Werte (über die gelesenen Zeilen).
 - **Feld-Mapping (SQL):** Spalten einer Abfrage auf `Patient` und `Observation` abbilden. Vorschläge nach Spaltennamen (und optional vom lokalen Modell) stehen als eigene Zeile mit Begründung und werden erst nach „Übernehmen“ wirksam.
 - **Ausgabe:** Bundle laden oder in den Abholordner des Kommunikationsservers legen.
 

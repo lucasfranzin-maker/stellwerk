@@ -111,6 +111,7 @@ class Workspace:
         fd = t["felder"]
         bundles, findings, labels = fieldmap.build(cols, rows, fd["regeln"], cfg, fd["status"])
         samples = {c: list(dict.fromkeys(str(r[i]) for r in rows if r[i] not in (None, "")))[:4] for i, c in enumerate(cols)}
+        prof = fieldmap.profile(cols, rows)
         llm, note = make_llm(cfg)
         vor = fieldmap.suggest(cols, fd["regeln"], fd["abgelehnt"], llm, samples)
         n = min(max(t["dokument"], 0), max(len(rows) - 1, 0))
@@ -127,7 +128,7 @@ class Workspace:
             "roh": {"spalten": cols, "zeilen": [["" if c is None else str(c)[:300] for c in r] for r in rows[:50]], "gesamt": len(rows)},
             "ziele": [{"key": k, "pfad": p, "text": x} for k, p, x in fieldmap.ZIELE],
             "spalten": [{"name": c, "beispiele": samples[c], "regel": fd["regeln"].get(c), "vorschlag": vor.get(c),
-                         "abgelehnt": c in fd["abgelehnt"]} for c in cols],
+                         "abgelehnt": c in fd["abgelehnt"], "profil": prof[c]} for c in cols],
             "feldstatus": fd["status"], "bundles": sum(1 for b in bundles if b),
             "befunde": [{"code": x.code, "stufe": x.severity, "wo": x.where, "meldung": x.message, "was_tun": x.action,
                          "detail": x.detail} for x in findings],
