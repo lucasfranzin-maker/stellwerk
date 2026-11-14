@@ -99,6 +99,18 @@ def cmd_sql(args, cfg) -> int:
     return _finish(results, args, cfg)
 
 
+def cmd_discover(args, cfg) -> int:
+    from . import discovery
+    try:
+        schema = discovery.crawl(args.db, with_values=not args.ohne_werte)
+    except discovery.DiscoveryError as exc:
+        return _fail(str(exc))
+    llm, _ = make_llm(cfg)
+    res = discovery.analyse(schema, llm=llm)
+    print(json.dumps(res, ensure_ascii=False, indent=1) if args.json else discovery.render_text(res), end="")
+    return 1 if res["zusammenfassung"]["ungeklaert"] or res["zusammenfassung"]["unsicher"] else 0
+
+
 def cmd_doctor(args, cfg) -> int:
     from .pdftext import ocr_available
     bad = 0
@@ -209,6 +221,11 @@ def main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("vorlage", help="mitgelieferte Vorlage ausgeben, um sie anzupassen")
     v.add_argument("name", choices=list_templates())
     v.set_defaults(fn=lambda a, c: print((__import__("importlib.resources").resources.files("stellwerk") / "vorlagen" / f"{a.name}.yaml").read_text(encoding="utf-8"), end="") or 0)
+    e = sub.add_parser("discover", help="Datenbankschema lesen, Bedeutung der Felder und Zusammenhänge vorschlagen")
+    e.add_argument("db", help="Datenbankadresse, z. B. sqlite:///kis.db")
+    e.add_argument("--json", action="store_true", help="Ergebnis als JSON ausgeben")
+    e.add_argument("--ohne-werte", action="store_true", help="nur das Schema lesen, keine Zeilen")
+    e.set_defaults(fn=cmd_discover)
     d = sub.add_parser("doctor", help="Einrichtung prüfen: Texterkennung, lokales Modell, Konfiguration")
     d.set_defaults(fn=cmd_doctor)
     i = sub.add_parser("init", help="stellwerk.yaml mit kommentierten Vorgaben anlegen")

@@ -7,6 +7,7 @@ steht, kommt immer wörtlich aus der Quelle.
 from __future__ import annotations
 
 import ipaddress
+import os
 import json
 import re
 import socket
@@ -59,20 +60,33 @@ class LocalLLM:
         if u.scheme not in ("http", "https") or not u.hostname:
             raise LLMError(f"Ungültige LLM-Adresse: {self.url}")
         allowed = set(cfg.get("erlaubte_hosts") or [])
-        if cfg.get("nur_lokal", True) and u.hostname not in allowed and not host_is_local(u.hostname):
-            raise LLMError(
-                f"Der LLM-Server {u.hostname} liegt nicht im lokalen Netz. Patientendaten würden das Haus verlassen. "
-                "Abgelehnt. (Bewusst erlauben: llm.erlaubte_hosts.)")
+        ext = cfg.get("extern") or {}
+        lokal = u.hostname in allowed or host_is_local(u.hostname)
+        self.extern = not lokal
+        # Darf dieses Modell Zeilenwerte und Dokumenttext sehen? Lokal ja, extern nur nach ausdrücklicher Freigabe.
+        self.patientendaten = lokal or ext.get("daten") == "alles"
+        if self.extern:
+            if not ext.get("erlaubt"):
+                raise LLMError(
+                    f"Der LLM-Server {u.hostname} liegt nicht im lokalen Netz. Daten würden das Haus verlassen. "
+                    "Abgelehnt. (Bewusst erlauben: llm.extern.erlaubt und llm.extern.daten.)")
+            if u.scheme != "https":
+                raise LLMError("Ein externes Modell wird nur über https angesprochen.")
+        self._key = os.environ.get(cfg.get("schluessel_env") or "STELLWERK_LLM_KEY", "")
         # Kein Systemproxy: die Anfrage geht direkt an den eingestellten Server.
         self._opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)
 
     @property
     def label(self) -> str:
-        return f"{self.model} ({urlparse(self.url).netloc})"
+        ort = "extern, " + ("alle Daten" if self.patientendaten else "nur Metadaten") if self.extern else "lokal"
+        return f"{self.model} ({urlparse(self.url).netloc}, {ort})"
 
     def _request(self, path: str, payload: dict | None = None, timeout: float | None = None) -> dict:
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
-        req = urllib.request.Request(self.url + path, data=data, headers={"Content-Type": "application/json"})
+        headers = {"Content-Type": "application/json"}
+        if self._key:
+            headers["Authorization"] = f"Bearer {self._key}"
+        req = urllib.request.Request(self.url + path, data=data, headers=headers)
         try:
             with self._opener.open(req, timeout=timeout or self.timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))

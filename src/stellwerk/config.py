@@ -19,7 +19,8 @@ DEFAULTS: dict[str, Any] = {
     "ocr": {"modus": "auto", "sprache": "deu", "dpi": 300,
             "seite_warnen_unter": 75, "zahl_warnen_unter": 80, "wort_unsicher_unter": 60},
     "llm": {"url": "http://localhost:11434", "modell": "", "api": "ollama", "timeout": 120,
-            "nur_lokal": True, "erlaubte_hosts": []},
+            "erlaubte_hosts": [], "schluessel_env": "STELLWERK_LLM_KEY",
+            "extern": {"erlaubt": False, "daten": "metadaten"}},
     "zustellung": {"ziel": None, "bei_pruefen": "zurueckhalten"},
     "ausgabe": "out",
     "arbeitsbereich": "arbeitsbereich",   # Projekte und Aufgaben der Workbench

@@ -78,18 +78,36 @@ Danach läuft derselbe Fall ohne Modell und ohne Rückfrage.
 stellwerk vorlage entlassbrief > entlassbrief.yaml   # anpassen, dann --vorlage entlassbrief.yaml
 ```
 
-## Lokales Sprachmodell
+## Datenbank erschließen
+
+```bash
+stellwerk discover sqlite:///beispiele/kis.db
+```
+
+Liest das ganze Schema (nur lesend), schlägt je Spalte eine Bedeutung mit Begründung vor, zeigt zusammengehörige Felder
+(Wert und Einheit, Angaben zur Person, Abschnitte eines Dokuments) und Beziehungen zwischen Tabellen. Was nicht sicher
+erkennbar ist, bleibt „ungeklärt“; Entscheidungen von Hand werden gespeichert und haben Vorrang.
+Getestet nur mit SQLite. Eine Oberfläche dafür gibt es noch nicht (`POST /api/erschliessen`).
+
+## Sprachmodell
 
 ```yaml
 llm:
   modell: <name>               # leer = ohne Modell
   url: http://localhost:11434
-  api: ollama                  # oder openai (llama.cpp, vLLM, LM Studio)
+  api: ollama                  # oder openai (llama.cpp, vLLM, LM Studio, Gateways, externe Anbieter)
+  extern:
+    erlaubt: false             # externes Modell: Daten verlassen das Haus
+    daten: metadaten           # metadaten | alles
 ```
 
-Adressen außerhalb des lokalen Netzes lehnt Stellwerk ab; Systemproxys und Weiterleitungen werden nicht benutzt.
+Der API-Schlüssel kommt aus der Umgebungsvariable `STELLWERK_LLM_KEY`, nie aus der Datei.
+Ein externes Modell lehnt Stellwerk ab, solange `extern.erlaubt` nicht gesetzt ist. Mit `daten: metadaten` gehen nur Tabellen-
+und Spaltennamen hinaus; Zeilenwerte und Dokumenttext nur mit `daten: alles`.
 `stellwerk doctor` prüft, ob das Modell erreichbar ist und drei Testtexte richtig zuordnet.
 Fällt das Modell aus, läuft die Verarbeitung ohne es weiter und meldet das.
+
+Stand aller Anforderungen und geplante Reihenfolge: [docs/anforderungen.md](docs/anforderungen.md).
 
 ## Ausgabe
 

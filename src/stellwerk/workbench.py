@@ -113,7 +113,7 @@ class Workspace:
         samples = {c: list(dict.fromkeys(str(r[i]) for r in rows if r[i] not in (None, "")))[:4] for i, c in enumerate(cols)}
         prof = fieldmap.profile(cols, rows)
         llm, note = make_llm(cfg)
-        vor = fieldmap.suggest(cols, fd["regeln"], fd["abgelehnt"], llm, samples)
+        vor = fieldmap.suggest(cols, fd["regeln"], fd["abgelehnt"], llm, samples if llm and llm.patientendaten else None)
         n = min(max(t["dokument"], 0), max(len(rows) - 1, 0))
         bundle = bundles[n] if bundles else None
         fehler = any(x.severity == FEHLER for x in findings)
@@ -244,6 +244,26 @@ def handle(ws: Workspace, cfg: dict, method: str, path: str, query: dict, body: 
         except (ValueError, UnicodeDecodeError) as exc:
             raise ApiError(400, "Kein gültiges JSON.") from exc
 
+    if parts == ["erschliessen"] and method == "POST":
+        from . import discovery
+        body_js = js()
+        db = str(body_js.get("db") or "")
+        if not db:
+            raise ApiError(400, "Datenbankadresse eintragen.")
+        store = ws.root / "erschliessung.json"
+        alle = json.loads(store.read_text("utf-8")) if store.exists() else {}
+        ent = {**alle.get(db, {}), **{str(k): str(v) for k, v in (body_js.get("entscheidungen") or {}).items()
+                                      if v in discovery.BEDEUTUNGEN or v == discovery.UNGEKLAERT}}
+        if body_js.get("entscheidungen"):
+            ws.root.mkdir(parents=True, exist_ok=True)
+            alle[db] = ent
+            _atomic(store, json.dumps(alle, ensure_ascii=False, indent=1).encode("utf-8"))
+        llm, _ = make_llm(cfg)
+        try:
+            schema = discovery.crawl(db, with_values=True)
+        except discovery.DiscoveryError as exc:
+            raise ApiError(400, str(exc)) from exc
+        return 200, discovery.analyse(schema, ent, llm)
     if parts == ["baum"]:
         if method == "PUT":
             ws.save_tree(js())

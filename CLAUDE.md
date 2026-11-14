@@ -93,13 +93,20 @@ The owner rejected the generic "AI-made SaaS" look. Do not drift back to it. Ban
 - Layout: explorer tree (user-defined folders and tasks) | source | mapping | FHIR output. Model proposals appear inline in the mapping pane with Accept/Reject, never as chat.
 - Backlog: pipeline designer.
 
+## 7b. Target architecture (decided 2026-11-14, not yet built)
+- Backend moves from the stdlib server to **FastAPI** with a database (SQLite on-premise, PostgreSQL in the cloud), shipped as a Docker image.
+- Frontend becomes a **React** app. Built assets are committed/packaged so a hospital install needs no Node and no network. This supersedes "one HTML file without a build step" once the migration lands; the visual system in 7a stays.
+- Login via **OIDC / Active Directory** with roles; no local password store.
+- LLM access may go through a gateway that shields clinic-to-cloud traffic; see `docs/anforderungen.md`.
+- Status and order of work: `docs/anforderungen.md`.
+
 ## 8. Engineering Principles (Pipeline)
 - **Never convert clinical values:** value and unit go into the bundle exactly as delivered (only number notation changes: `1,10` → `1.10`, trailing zeros kept via `fieldmap.dump_json`). Ambiguity (mixed units, `<0,6`, unknown codes) is reported, never resolved by the tool. Mapping proposals are never applied without an explicit accept.
 - **Extractive only:** Text in the FHIR document is always verbatim from the source. The local LLM returns `index -> section key`, never text.
 - **Nothing is dropped silently:** every source line ends up in a section, in the catch-all section, or in a finding that lists it. `sectionize` verifies the count.
 - **Repair only what is lossless:** encoding repairs must round-trip unambiguously; everything else is reported and left unchanged. No NFKC (`m²`, `µg` must survive).
 - **Findings are actionable:** each `Finding` has where, what, and what to do. Severity `pruefen` is reserved for things a human must look at; avoid alert fatigue.
-- **LLM stays local:** `llm.py` refuses non-local hosts, ignores system proxies and redirects. LLM-assigned content is always `pruefen`.
+- **LLM data policy:** local models may see everything. An external model (API key from the env var named in `llm.schluessel_env`, https only) is refused unless `llm.extern.erlaubt` is set; with `daten: metadaten` it only ever receives table/column names and types, with `daten: alles` also row values and document text (owner's decision, requires a data processing agreement). Check `llm.patientendaten` before sending any value or text. No system proxies, no redirects. Model-assigned content is always `pruefen`.
 - **Synthetic data only** in `beispiele/` and `tests/`. Never commit real patient data, `out/`, or `stellwerk.yaml`.
 - User-facing strings are German; identifiers are English. Runtime dependencies stay minimal (air-gapped hospital installs).
 - Run `python -m pytest` before committing. Regenerate examples with `python beispiele/erzeugen.py`.

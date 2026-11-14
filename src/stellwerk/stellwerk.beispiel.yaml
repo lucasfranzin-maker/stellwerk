@@ -30,10 +30,14 @@ ocr:
 llm:
   modell: ""                # leer = ohne Modell arbeiten
   url: http://localhost:11434
-  api: ollama               # ollama | openai (llama.cpp, vLLM, LM Studio und andere)
+  api: ollama               # ollama | openai (llama.cpp, vLLM, LM Studio, Gateways, externe Anbieter)
   timeout: 120
-  nur_lokal: true           # Adressen außerhalb des lokalen Netzes werden abgelehnt
-  erlaubte_hosts: []
+  erlaubte_hosts: []        # Hosts, die als "im Haus" gelten (z. B. ein eigenes Gateway in der DMZ)
+  schluessel_env: STELLWERK_LLM_KEY   # Name der Umgebungsvariable mit dem API-Schlüssel; der Schlüssel steht nie in dieser Datei
+  # Externes Modell: Daten verlassen das Haus. Nur mit AV-Vertrag und Freigabe des Datenschutzes einschalten.
+  extern:
+    erlaubt: false
+    daten: metadaten        # metadaten = nur Tabellen- und Spaltennamen | alles = auch Zeilenwerte und Dokumenttext
 
 zustellung:
   ziel:                     # Ordner (den der Kommunikationsserver abholt) oder http(s)-Adresse

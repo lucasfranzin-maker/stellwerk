@@ -113,6 +113,9 @@ def process(doc: SourceDoc, cfg: dict, vorlage: str | None = None, llm: LocalLLM
     res = Result(doc, tpl, findings=list(doc.findings), llm=llm.label if llm else llm_note)
     if any(f.severity == FEHLER for f in res.findings) and not any(ln.text.strip() for ln in doc.lines):
         return res
+    if llm and not llm.patientendaten:           # externes Modell ohne Freigabe für Patientendaten: kein Dokumenttext
+        res.llm += " – für Dokumenttext nicht freigegeben, nicht benutzt"
+        llm = None
     res.sections, f = sectionize(doc, tpl, llm)
     res.findings += f + crosscheck_patient(doc)
     res.bundle, f = build_bundle(doc, res.sections, tpl, cfg, now=now)
