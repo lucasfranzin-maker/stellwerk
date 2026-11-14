@@ -100,6 +100,7 @@ The owner rejected the generic "AI-made SaaS" look. Do not drift back to it. Ban
 - Frontend becomes a **React** app. Built assets are committed/packaged so a hospital install needs no Node and no network. This supersedes "one HTML file without a build step" once the migration lands; the visual system in 7a stays.
 - Login via **OIDC / Active Directory** with roles; no local password store.
 - LLM access may go through a gateway that shields clinic-to-cloud traffic; see `docs/anforderungen.md`.
+- Routing via BridgeLink: `bridgelink.py` generates the channel XML (tested against BridgeLink 26.9.0) and talks to its REST API; routing headers `X-Stellwerk-*` never carry patient data. See `docs/bridgelink.md`.
 - Status and order of work: `docs/anforderungen.md`.
 
 ## 8. Engineering Principles (Pipeline)

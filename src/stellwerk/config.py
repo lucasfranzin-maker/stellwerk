@@ -21,7 +21,12 @@ DEFAULTS: dict[str, Any] = {
     "llm": {"url": "http://localhost:11434", "modell": "", "api": "ollama", "timeout": 120,
             "erlaubte_hosts": [], "schluessel_env": "STELLWERK_LLM_KEY",
             "extern": {"erlaubt": False, "daten": "metadaten"}},
-    "zustellung": {"ziel": None, "bei_pruefen": "zurueckhalten"},
+    "zustellung": {"ziel": None, "bei_pruefen": "zurueckhalten", "benutzer": "", "passwort_env": "STELLWERK_ZIEL_PASSWORT",
+                   "ca": "", "timeout": 30},
+    "bridgelink": {"api": "", "benutzer": "", "passwort_env": "STELLWERK_BRIDGELINK_PASSWORT", "ca": "",
+                   "kanal": {"name": "Stellwerk FHIR-Eingang", "host": "0.0.0.0", "port": 8095, "pfad": "/stellwerk",
+                             "fhir_ziel": "", "fhir_auth": "keine", "fhir_benutzer": "", "fhir_passwort_env": "",
+                             "fhir_token_env": "", "pruefablage": "", "speicherung": "PRODUCTION", "verschluesseln": True}},
     "ausgabe": "out",
     "arbeitsbereich": "arbeitsbereich",   # Ordner für die Datenbank (SQLite) und Altbestand aus Version 0.1
     "datenbank": "",                      # leer = sqlite:///<arbeitsbereich>/stellwerk.db

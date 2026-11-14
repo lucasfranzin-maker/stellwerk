@@ -202,6 +202,31 @@ def create_app(cfg: dict, store: Store | None = None) -> FastAPI:
         store.audit(wer(request), "bundle.abgelegt", tid, ordner)
         return out
 
+    @app.post("/api/aufgabe/{tid}/senden")
+    def senden(tid: str, request: Request):
+        out = ws.send(tid, cfg)
+        store.audit(wer(request), "bundle.gesendet", tid, f"{out['bundles']} an {out['ziel']}")
+        return out
+
+    @app.get("/api/zustellung")
+    def zustellung():
+        z = cfg.get("zustellung") or {}
+        ziel = str(z.get("ziel") or "")
+        return {"ziel": ziel if ziel.startswith(("http://", "https://")) else "", "bei_pruefen": z.get("bei_pruefen", "zurueckhalten"),
+                "bridgelink": bool((cfg.get("bridgelink") or {}).get("api"))}
+
+    @app.get("/api/bridgelink/status")
+    def bridgelink_status():
+        from . import bridgelink
+        b = cfg.get("bridgelink") or {}
+        if not b.get("api"):
+            raise workbench.ApiError(404, "BridgeLink ist nicht eingerichtet (bridgelink.api).")
+        try:
+            cid, _ = bridgelink.channel_xml(b.get("kanal") or {}, "x", "x")
+            return bridgelink.BridgeLink(b).status(cid)
+        except bridgelink.BridgeLinkError as exc:
+            raise workbench.ApiError(502, str(exc)) from exc
+
     @app.get("/api/aufgabe/{tid}/bundle")
     def bundle(tid: str):
         data = ws.bundle(tid)

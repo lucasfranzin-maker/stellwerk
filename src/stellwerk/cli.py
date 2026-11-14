@@ -182,6 +182,40 @@ def cmd_mllp(args, cfg) -> int:
     return 0
 
 
+def cmd_bridgelink(args, cfg) -> int:
+    from . import bridgelink
+    b, z = cfg.get("bridgelink") or {}, cfg.get("zustellung") or {}
+    k = b.get("kanal") or {}
+    try:
+        user = z.get("benutzer") or ""
+        pw = os.environ.get(z.get("passwort_env") or "STELLWERK_ZIEL_PASSWORT", "")
+        if not user:
+            return _fail("zustellung.benutzer fehlt. Der Kanal nimmt nur angemeldete Anfragen an.")
+        if args.aktion == "kanal":
+            print(bridgelink.channel_xml(k, user, pw)[1])
+            return 0
+        client = bridgelink.BridgeLink(b)
+        version = client.version()
+        cid, xml = bridgelink.channel_xml(k, user, pw, version)
+        if args.aktion == "einrichten":
+            was = client.install(cid, xml)
+            print(f"Kanal „{k.get('name')}“ {was} und bereitgestellt (BridgeLink {version}, ID {cid}).")
+            soll = f":{k.get('port')}{k.get('pfad')}"
+            if not str(z.get("ziel") or "").endswith(soll):
+                print(f"Noch einstellen: zustellung.ziel = http(s)://<bridgelink-host>{soll}")
+            if not k.get("fhir_ziel"):
+                print("Hinweis: kanal.fhir_ziel ist leer. Alle Bundles landen in der Ablage im BridgeLink-Server.")
+            return 0
+        st = client.status(cid)
+        print(f"{st['name'] or k.get('name')}: {st['zustand']}. Empfangen {st['empfangen']}, "
+              f"abgewiesen {st['abgewiesen']} (ohne Routing-Merkmal).")
+        for d in st["ziele"]:
+            print(f"  {d['name']}: gesendet {d['gesendet']}, Fehler {d['fehler']}, in Warteschlange {d['warteschlange']}")
+        return 2 if st["fehler"] or st["zustand"] != "STARTED" else 0
+    except bridgelink.BridgeLinkError as exc:
+        return _fail(str(exc))
+
+
 def cmd_migrate(args, cfg) -> int:
     from .db import Store
     if args.sql:
@@ -245,6 +279,10 @@ def main(argv: list[str] | None = None) -> int:
     e.set_defaults(fn=cmd_discover)
     d = sub.add_parser("doctor", help="Einrichtung prüfen: Texterkennung, lokales Modell, Konfiguration")
     d.set_defaults(fn=cmd_doctor)
+    bl = sub.add_parser("bridgelink", help="BridgeLink-Kanal ausgeben, einrichten oder prüfen")
+    bl.add_argument("aktion", choices=["kanal", "einrichten", "status"],
+                    help="kanal: Kanal-XML ausgeben | einrichten: anlegen und bereitstellen | status: Zustand und Zähler")
+    bl.set_defaults(fn=cmd_bridgelink)
     mg = sub.add_parser("migrate", help="Datenbankschema anlegen oder auf den neuesten Stand bringen")
     mg.add_argument("--sql", metavar="DIALEKT", choices=["postgresql", "sqlite"], help="nur das SQL ausgeben, z. B. für die Datenbankverwaltung")
     mg.set_defaults(fn=cmd_migrate)

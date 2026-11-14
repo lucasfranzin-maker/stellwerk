@@ -354,8 +354,19 @@ function paneOut() {
     body.append(h('div', { class: 'pad' }, h('span', { class: 'tag ' + (fh.length || !L.bundle ? 'fehler' : 'ok') }, fh.length || !L.bundle ? 'Profilregeln verletzt oder kein Bundle' : 'Eingebaute Profilregeln erfüllt'),
       h('p', { class: 'mut' }, 'Geprüft werden die Regeln aus ISiKBerichtBundle und ISiKBerichtSubSysteme, die Stellwerk selbst kennt. Das ersetzt nicht den offiziellen FHIR-Validator.'),
       fh.map(b => h('p', {}, h('span', { class: 'wo mono' }, b.wo), ': ', b.meldung))));
+    const Z = S.zustellung || {};
+    if (Z.ziel) {
+      const pr = L.status === 'pruefen';
+      body.append(h('div', { class: 'pad', style: 'border-top:1px solid var(--line)' },
+        h('div', { class: 'f' }, 'Zustellziel'), h('div', { class: 'mono', style: 'margin:3px 0 8px;overflow-wrap:anywhere' }, Z.ziel),
+        h('div', { class: 'row' }, h('button', { class: 'btn pri', disabled: !L.bundle || S.busy, onclick: async () => {
+          try { const r = await api('POST', 'aufgabe/' + S.sel + '/senden'); toast(r.bundles + (r.bundles === 1 ? ' Bundle' : ' Bundles') + ' übergeben an ' + r.ziel + (r.status === 'pruefen' ? ' (als „zu prüfen“ markiert)' : ''), 'ok'); }
+          catch (e) { toast(e.message); } } }, icon('send'), 'An Zustellziel senden')),
+        h('p', { class: 'mut' }, pr ? 'Es gibt offene Prüfpunkte. Das Bundle geht als „zu prüfen“ markiert hinaus; ein BridgeLink-Kanal von Stellwerk legt es in die Prüfablage statt es weiterzuleiten.'
+                                    : 'Das Bundle geht als „frei“ markiert hinaus; ein BridgeLink-Kanal von Stellwerk leitet es an das FHIR-Ziel weiter.')));
+    }
     const o = h('input', { class: 'in', value: t.ablage, placeholder: '/pfad/zum/abholordner', onchange: () => { t.ablage = o.value; saveTask(); } });
-    body.append(h('div', { class: 'pad', style: 'border-top:1px solid var(--line)' }, h('label', { class: 'f' }, 'Abholordner des Kommunikationsservers (Cloverleaf, Mirth)', o),
+    body.append(h('div', { class: 'pad', style: 'border-top:1px solid var(--line)' }, h('label', { class: 'f' }, 'Abholordner des Kommunikationsservers (Cloverleaf, BridgeLink, Mirth)', o),
       h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'btn', disabled: !L.bundle, onclick: async () => { try { t.ablage = o.value; await saveTask(); const r = await api('POST', 'aufgabe/' + S.sel + '/ablegen', { ordner: o.value }); toast('Abgelegt: ' + r.datei, 'ok'); } catch (e) { toast(e.message); } } }, icon('send'), 'Bundle ablegen')),
       L.status === 'pruefen' ? h('p', { class: 'mut' }, 'Hinweis: Es gibt offene Prüfpunkte. Ablegen ist trotzdem möglich und Ihre Entscheidung.') : null));
   }
@@ -390,6 +401,7 @@ function drawMain() {
 
 document.getElementById('addroot').append(icon('plus'));
 document.getElementById('addroot').onclick = () => addNode(null, 'ordner');
+api('GET', 'zustellung').then(z => { S.zustellung = z; }).catch(() => {});
 api('GET', 'baum').then(t => { S.vorlagen = t.vorlagen; S.tree = { kinder: t.kinder }; drawTree(); drawMain(); }).catch(e => { console.error(e); toast(e.message); });
 </script>
 </body>

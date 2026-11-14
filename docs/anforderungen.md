@@ -11,6 +11,7 @@ Stand 14.11.2026, Version 0.2. „Getestet“ heißt: automatische Tests mit erf
 | Zeitgemäßer Stack | teilweise | FastAPI, SQLAlchemy 2, Alembic-Migrationen, uvicorn | React-Oberfläche (entschieden) |
 | Härtung | teilweise | nur lesende SQL-Abfragen, Pfadprüfung, externes LLM gesperrt, Dienst bindet an localhost, Sicherheits-Header (CSP, nosniff, frame-ancestors), Größenlimit, keine Passwörter in Datenbankadressen, Audit-Protokoll, Container ohne Root | Anmeldung und Rechte, TLS-Leitfaden, CSP ohne `unsafe-inline` (kommt mit React), Abhängigkeitsprüfung in CI |
 | Nutzerverwaltung | offen | – | OIDC/AD, Rollen, Sitzungen (entschieden) |
+| Routing über BridgeLink | erledigt | Kanal wird von Stellwerk angelegt und bereitgestellt; Routing nach Status (FHIR-Ziel mit Warteschlange oder Prüfablage); Zustand per CLI und `/api/bridgelink/status`; Senden aus der Workbench; gegen BridgeLink 26.9.0 getestet | TLS am Kanal-Eingang (BridgeLink-Listener kann es nicht); Zustand in der Oberfläche |
 | Monitoring, Customizing, Alerting | begonnen | Laufprotokoll je Lauf (Workbench, HTTP, MLLP) ohne Patientendaten, `/healthz`, `/readyz` | Kennzahlen je Schnittstelle, Oberfläche, Schwellen, Benachrichtigung |
 
 ## Reihenfolge

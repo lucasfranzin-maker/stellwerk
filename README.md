@@ -118,6 +118,9 @@ Transaktion für ein CDR: Patient und Fall werden nur angelegt, wenn sie fehlen;
 
 Anbindung an Cloverleaf: [docs/cloverleaf.md](docs/cloverleaf.md).
 
+Routing über BridgeLink (Mirth-Nachfolger): Stellwerk richtet einen Kanal ein, der OK-Bundles an das FHIR-Ziel
+und Prüf-Bundles in eine Prüfablage leitet, mit Warteschlange und Wiederholung. Siehe [docs/bridgelink.md](docs/bridgelink.md).
+
 ## Grenzen
 
 - **Nicht mit dem offiziellen FHIR-Validator geprüft.** Die Tests prüfen gegen das FHIR-Grundmodell und gegen die
@@ -134,7 +137,7 @@ Anbindung an Cloverleaf: [docs/cloverleaf.md](docs/cloverleaf.md).
 - Das Feld-Mapping kennt eine feste Liste von Zielfeldern (Patient, Fallbezug, Laborwert mit LOINC, Einheit, Zeitpunkt) und erzeugt je Zeile eine Transaktion. Es gibt kein freies Regelwerk, keinen Terminologieserver und keine MII-Profilangabe.
 - Werte werden nie umgerechnet. Nicht-numerische Werte wie `<0,6` stehen als Text im Bundle; gemischte Einheiten werden gemeldet.
 - Die LOINC-Vorschlagsliste ist klein (neun Laborwerte) und nicht gegen eine aktuelle LOINC-Version geprüft.
-- Für Mirth gibt es keinen eigenen Export; es bekommt dasselbe FHIR-Bundle über Abholordner oder HTTP.
+- Für Mirth gibt es keinen eigenen Export; es bekommt dasselbe FHIR-Bundle über Abholordner oder HTTP. BridgeLink 26.9.0 ist mit eigenem Kanal angebunden und getestet; der Kanal-Eingang hat kein TLS (siehe docs/bridgelink.md).
 
 ## Datenschutz
 

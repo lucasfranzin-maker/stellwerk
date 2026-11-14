@@ -211,6 +211,44 @@ class Workspace:
         self._record(tid, doc.kind, res.status, out["befunde"], t0, "Abfrage" if t["art"] == "sql" else "Datei")   # Dateinamen können Patientennamen enthalten
         return out
 
+    def send(self, tid: str, cfg: dict) -> dict:
+        """Bundle(s) der Aufgabe an das eingestellte Zustellziel (z. B. BridgeLink) übergeben."""
+        import urllib.error
+
+        from .bridgelink import routing_headers
+        from .pipeline import send_http
+        z = cfg.get("zustellung") or {}
+        ziel = str(z.get("ziel") or "")
+        if not ziel.startswith(("http://", "https://")):
+            raise ApiError(400, "Kein HTTP-Zustellziel eingestellt (zustellung.ziel in stellwerk.yaml).")
+        t = self.task(tid)
+        if t["art"] == "sql" and t["modus"] == "felder":
+            cols, rows = self._query(t)
+            bundles, findings, _ = fieldmap.build(cols, rows, t["felder"]["regeln"], cfg, t["felder"]["status"])
+            if any(x.severity == FEHLER for x in findings):
+                raise ApiError(409, "Kein zustellbares Bundle. Erst die Fehler beheben.")
+            status = "pruefen" if any(x.severity == "pruefen" for x in findings) else "ok"
+            payloads = [fieldmap.dump_json(b).encode("utf-8") for b in bundles if b]
+            quelle = "Feld-Mapping"
+        else:
+            data = self.bundle(tid)
+            if not data:
+                raise ApiError(409, "Kein zustellbares Bundle. Erst ausführen und Fehler beheben.")
+            last = self.store.runs(1, tid)
+            status = last[0]["status"] if last else "pruefen"
+            payloads, quelle = [data], ("Abfrage" if t["art"] == "sql" else "Datei")
+        n = 0
+        try:
+            for p in payloads:
+                send_http(ziel, p, z, routing_headers(json.loads(p), status, quelle))
+                n += 1
+        except urllib.error.HTTPError as exc:
+            raise ApiError(502, f"{ziel} antwortet mit HTTP {exc.code} nach {n} von {len(payloads)} Bundles.") from exc
+        except (OSError, urllib.error.URLError) as exc:
+            raise ApiError(502, f"Übergabe an {ziel} fehlgeschlagen nach {n} von {len(payloads)} Bundles: "
+                                f"{getattr(exc, 'reason', exc)}") from exc
+        return {"ziel": ziel, "bundles": n, "status": status}
+
     def export(self, tid: str, ordner: str, cfg: dict | None = None) -> dict:
         t = self.task(tid)
         if t["art"] == "sql" and t["modus"] == "felder":
