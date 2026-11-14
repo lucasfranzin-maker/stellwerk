@@ -1,0 +1,10 @@
+.git
+**/__pycache__
+**/*.pyc
+*.egg-info
+out
+arbeitsbereich
+beispiele
+tests
+docs
+stellwerk.yaml

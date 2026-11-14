@@ -41,6 +41,11 @@ class DiscoveryError(Exception):
 
 def crawl(db: str, sample: int = 200, with_values: bool = True) -> dict:
     """Schema lesen. sample > 0 liest je Tabelle so viele Zeilen für das Profil (nur lesend)."""
+    from .sqlsource import SqlError, resolve_url
+    try:
+        db = resolve_url(db)
+    except SqlError as exc:
+        raise DiscoveryError(str(exc)) from exc
     if db.startswith("sqlite:///"):
         path = Path(db[10:])
         if not path.exists():

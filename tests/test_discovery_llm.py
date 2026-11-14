@@ -5,7 +5,6 @@ import pytest
 
 from stellwerk import discovery
 from stellwerk.llm import LLMError, LocalLLM
-from stellwerk.workbench import Workspace, handle
 
 
 def test_schema_bedeutung_und_zusammenhaenge(bsp):
@@ -23,7 +22,7 @@ def test_schema_bedeutung_und_zusammenhaenge(bsp):
     assert "✓ pat_id" in discovery.render_text(res)
 
 
-def test_ungeklaert_bleibt_beim_menschen_und_fremdschluessel(tmp_path, cfg):
+def test_ungeklaert_bleibt_beim_menschen_und_fremdschluessel(tmp_path, api):
     db = tmp_path / "x.db"
     con = sqlite3.connect(db)
     con.executescript("CREATE TABLE P (PATNR TEXT PRIMARY KEY, XQ7 TEXT); CREATE TABLE F (FALLNR TEXT, PATNR TEXT REFERENCES P(PATNR));"
@@ -35,8 +34,7 @@ def test_ungeklaert_bleibt_beim_menschen_und_fremdschluessel(tmp_path, cfg):
     assert xq["bedeutung"] == "ungeklaert" and res["zusammenfassung"]["ungeklaert"] == 1
     assert res["beziehungen"] == [{"von": "F.PATNR", "nach": "P.PATNR", "art": "Fremdschlüssel", "sicherheit": "hoch",
                                    "begruendung": "In der Datenbank als Fremdschlüssel erklärt"}]
-    ws = Workspace(str(tmp_path / "ws"))
-    call = lambda body: handle(ws, cfg, "POST", "/api/erschliessen", {}, json.dumps(body).encode())[1]    # noqa: E731
+    call = lambda body: api("POST", "erschliessen", body)    # noqa: E731
     call({"db": url, "entscheidungen": {"P.XQ7": "kommentar", "P.PATNR": "quatsch"}})
     again = call({"db": url})                                    # Entscheidung bleibt gespeichert
     xq = next(c for t in again["tabellen"] for c in t["spalten"] if c["name"] == "XQ7")

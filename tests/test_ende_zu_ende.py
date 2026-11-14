@@ -10,7 +10,6 @@ from fhir.resources.R4B.bundle import Bundle
 from stellwerk import cli
 from stellwerk.mllp import handle_message
 from stellwerk.pipeline import deliver, ingest, process, write_outputs
-from stellwerk.server import serve
 from stellwerk.sqlsource import SqlError, check_readonly
 
 NOW = datetime(2026, 11, 14, 6, 0, tzinfo=timezone.utc)
@@ -136,12 +135,24 @@ def test_mllp_ueber_die_leitung(bsp, cfg, tmp_path):
     assert b"MSA|AA|MSG00042" in asyncio.run(go())
 
 
-def test_http_dienst(bsp, cfg, tmp_path):
-    srv = serve("127.0.0.1", 0, cfg, str(tmp_path))
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    base = f"http://127.0.0.1:{srv.server_port}"
-    req = urllib.request.Request(base + "/v1/convert?name=a.hl7", data=(bsp / "arztbrief_mdm.hl7").read_bytes(), method="POST")
-    out = json.loads(urllib.request.urlopen(req, timeout=30).read())
-    assert out["status"] == "pruefen" and out["dokumente"][0]["bundle"]["resourceType"] == "Bundle"
-    assert b"Stellwerk" in urllib.request.urlopen(base + "/", timeout=5).read()
-    srv.shutdown()
+def test_http_schnittstelle(bsp, client):
+    r = client.post("/v1/convert", params={"name": "a.hl7"}, content=(bsp / "arztbrief_mdm.hl7").read_bytes())
+    out = r.json()
+    assert r.status_code == 200 and out["status"] == "pruefen" and out["dokumente"][0]["bundle"]["resourceType"] == "Bundle"
+    assert client.post("/v1/convert", content=b"").status_code == 400
+    r = client.post("/v1/convert", params={"name": "a.pdf"}, content=(bsp / "arztbrief_text.pdf").read_bytes())
+    assert r.status_code == 422 and r.json()["status"] == "fehler"
+    assert "<html" in client.post("/v1/convert", params={"name": "a.hl7"}, content=(bsp / "arztbrief_mdm.hl7").read_bytes(),
+                                  headers={"accept": "text/html"}).text
+    laeufe = client.get("/api/laeufe").json()["laeufe"]
+    assert [x["kanal"] for x in laeufe] == ["convert"] * 3 and laeufe[2]["quelle"] == "ORBIS" and laeufe[1]["status"] == "fehler"
+    assert client.get("/v1/health").json()["datenbank"] == "sqlite"
+    assert client.get("/probieren").status_code == 200
+
+
+def test_mllp_protokolliert_laeufe(bsp, cfg, tmp_path):
+    from stellwerk.db import Store
+    st = Store(f"sqlite:///{tmp_path / 'm.db'}")
+    st.migrate()
+    handle_message((bsp / "arztbrief_mdm.hl7").read_bytes(), cfg, str(tmp_path), store=st)
+    assert st.runs()[0]["kanal"] == "mllp"

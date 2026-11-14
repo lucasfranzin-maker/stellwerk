@@ -1,15 +1,16 @@
 """Workbench: Projekte als Baum, Aufgaben mit Quelle, Zuordnung und FHIR-Ausgabe.
 
-Ablage auf Platte im Arbeitsbereich: baum.json und je Aufgabe ein Ordner mit
-aufgabe.json, der Quelldatei und dem letzten Bundle. Der Arbeitsbereich enthält Patientendaten.
+Gespeichert wird in der Datenbank (siehe db.py). Quelldateien und Bundles enthalten Patientendaten.
 """
 from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 
 from . import fieldmap
+from .db import Store
 from .model import FEHLER
 from .pdftext import _ICD_VERLESEN
 from .pipeline import _atomic, _safe, ingest, make_llm, process
@@ -30,41 +31,40 @@ class ApiError(Exception):
 
 
 class Workspace:
-    def __init__(self, root: str):
-        self.root = Path(root)
+    def __init__(self, store: Store):
+        self.store = store
 
     # --- Baum
     def tree(self) -> dict:
-        p = self.root / "baum.json"
-        return json.loads(p.read_text("utf-8")) if p.exists() else {"kinder": []}
+        return {"kinder": self.store.tree()}
 
-    def save_tree(self, tree: dict) -> None:
+    def save_tree(self, tree: dict) -> set[str]:
+        seen: set[str] = set()
+
         def clean(node: dict, depth: int) -> dict:
-            if depth > 12 or not _ID.match(str(node.get("id", ""))) or node.get("typ") not in ("ordner", "aufgabe"):
+            nid = str(node.get("id", ""))
+            if depth > 12 or not _ID.match(nid) or node.get("typ") not in ("ordner", "aufgabe") or nid in seen:
                 raise ApiError(400, "Ungültiger Eintrag im Baum.")
+            seen.add(nid)
             name = str(node.get("name", "")).strip()[:120] or "Ohne Namen"
-            out = {"id": node["id"], "name": name, "typ": node["typ"]}
+            out = {"id": nid, "name": name, "typ": node["typ"]}
             if node["typ"] == "ordner":
                 out["kinder"] = [clean(k, depth + 1) for k in node.get("kinder") or []]
                 out["offen"] = bool(node.get("offen", True))
             return out
-        data = {"kinder": [clean(k, 0) for k in tree.get("kinder") or []]}
-        self.root.mkdir(parents=True, exist_ok=True)
-        _atomic(self.root / "baum.json", json.dumps(data, ensure_ascii=False, indent=1).encode("utf-8"))
+        return self.store.replace_tree([clean(k, 0) for k in tree.get("kinder") or []])
 
     # --- Aufgabe
-    def dir(self, tid: str) -> Path:
+    @staticmethod
+    def check(tid: str) -> str:
         if not _ID.match(tid):
             raise ApiError(400, "Ungültige Aufgaben-Kennung.")
-        d = self.root / "aufgaben" / tid
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+        return tid
 
     def task(self, tid: str) -> dict:
-        p = self.dir(tid) / "aufgabe.json"
-        t = {**VORGABE, **(json.loads(p.read_text("utf-8")) if p.exists() else {})}
-        src = self.dir(tid) / "quelle.name"
-        t["quelle"] = src.read_text("utf-8") if src.exists() else ""
+        row = self.store.task(self.check(tid))
+        t = {**VORGABE, **((row.einstellungen or {}) if row else {})}
+        t["quelle"] = row.quelle_name if row and row.quelle is not None else ""
         return t
 
     def save_task(self, tid: str, data: dict) -> dict:
@@ -83,15 +83,30 @@ class Workspace:
                        for c, r in (fd.get("regeln") or {}).items() if isinstance(r, dict) and r.get("ziel") in keys},
             "abgelehnt": [str(c)[:120] for c in fd.get("abgelehnt") or []],
             "status": str(fd.get("status") or "")}
-        _atomic(self.dir(tid) / "aufgabe.json", json.dumps(t, ensure_ascii=False, indent=1).encode("utf-8"))
+        from .sqlsource import has_password
+        if has_password(str(t["db"])):
+            raise ApiError(400, "Die Datenbankadresse enthält ein Passwort. Bitte als Platzhalter ${STELLWERK_DB_…} angeben "
+                                "und das Passwort als Umgebungsvariable des Dienstes setzen.")
+        self.store.save_task(self.check(tid), einstellungen=t)
         return self.task(tid)
 
     def save_source(self, tid: str, name: str, data: bytes) -> None:
         if not data:
             raise ApiError(400, "Leere Datei.")
-        d = self.dir(tid)
-        (d / "quelle.bin").write_bytes(data)
-        (d / "quelle.name").write_text(_safe(name), "utf-8")
+        self.store.save_task(self.check(tid), quelle=data, quelle_name=_safe(name), bundle=None)
+
+    def bundle(self, tid: str) -> bytes | None:
+        row = self.store.task(self.check(tid))
+        return row.bundle if row else None
+
+    def _set_bundle(self, tid: str, data: bytes | None) -> None:
+        self.store.save_task(tid, bundle=data)
+
+    def _record(self, tid: str, art: str, status: str, findings: list, t0: float, name: str = "") -> None:
+        self.store.add_run(kanal="workbench", aufgabe_id=tid, quelle=name[:120], art=art, status=status,
+                           fehler=sum(1 for f in findings if f["stufe"] == FEHLER),
+                           pruefen=sum(1 for f in findings if f["stufe"] == "pruefen"),
+                           dauer_ms=int((time.monotonic() - t0) * 1000), codes=sorted({f["code"] for f in findings}))
 
     # --- Lauf
     def _query(self, t: dict):
@@ -105,8 +120,8 @@ class Workspace:
 
     def run_fields(self, tid: str, cfg: dict) -> dict:
         """Feld-Mapping: Spalten -> Patient und Observation."""
+        t0 = time.monotonic()
         t = self.task(tid)
-        d = self.dir(tid)
         cols, rows = self._query(t)
         fd = t["felder"]
         bundles, findings, labels = fieldmap.build(cols, rows, fd["regeln"], cfg, fd["status"])
@@ -117,12 +132,9 @@ class Workspace:
         n = min(max(t["dokument"], 0), max(len(rows) - 1, 0))
         bundle = bundles[n] if bundles else None
         fehler = any(x.severity == FEHLER for x in findings)
-        if bundle and not fehler:
-            _atomic(d / "bundle.json", fieldmap.dump_json(bundle, indent=1).encode("utf-8"))
-        elif (d / "bundle.json").exists():
-            (d / "bundle.json").unlink()
+        self._set_bundle(tid, fieldmap.dump_json(bundle, indent=1).encode("utf-8") if bundle and not fehler else None)
         status = "fehler" if fehler else "pruefen" if any(x.severity == "pruefen" for x in findings) or vor else "ok"
-        return {
+        out = {
             "modus": "felder", "status": status, "satz": STATUS_SATZ[status], "modell": llm.label if llm else note, "art": "sql",
             "dokumente": labels, "dokument": n, "bloecke": [], "kopf": {}, "vorlage": {"name": "Feld-Mapping", "abschnitte": []},
             "roh": {"spalten": cols, "zeilen": [["" if c is None else str(c)[:300] for c in r] for r in rows[:50]], "gesamt": len(rows)},
@@ -135,10 +147,12 @@ class Workspace:
             "bundle": bundle if not fehler else None,
             "bundle_text": fieldmap.dump_json(bundle, indent=2) if bundle and not fehler else "",
         }
+        self._record(tid, "sql", status, out["befunde"], t0, "Feld-Mapping")
+        return out
 
     def run(self, tid: str, cfg: dict) -> dict:
+        t0 = time.monotonic()
         t = self.task(tid)
-        d = self.dir(tid)
         if t["art"] == "sql" and t["modus"] == "felder":
             return self.run_fields(tid, cfg)
         try:
@@ -159,10 +173,10 @@ class Workspace:
                     setattr(doc.meta, k, v)
             roh = {"spalten": cols, "zeilen": [["" if c is None else str(c)[:300] for c in r] for r in rows[:50]], "gesamt": len(rows)}
         else:
-            src = d / "quelle.bin"
-            if not src.exists():
+            row = self.store.task(tid)
+            if not row or row.quelle is None:
                 raise ApiError(400, "Noch keine Quelldatei hochgeladen.")
-            docs = ingest(src.read_bytes(), t["quelle"], cfg, t["meta"])
+            docs = ingest(row.quelle, t["quelle"], cfg, t["meta"])
         n = min(max(t["dokument"], 0), len(docs) - 1)
         doc = docs[n]
         llm, note = make_llm(cfg)
@@ -172,10 +186,8 @@ class Workspace:
                 roh = {"text": decode_bytes(doc.stats.get("eingang") or b"")[0].replace("\r\n", "\n").replace("\r", "\n")}
             else:
                 roh = {"text": "\n".join(ln.text for ln in doc.lines)}
-        if res.bundle and res.status != "fehler":
-            _atomic(d / "bundle.json", json.dumps(res.bundle, ensure_ascii=False, indent=1).encode("utf-8"))
-        elif (d / "bundle.json").exists():
-            (d / "bundle.json").unlink()
+        self._set_bundle(tid, json.dumps(res.bundle, ensure_ascii=False, indent=1).encode("utf-8")
+                         if res.bundle and res.status != "fehler" else None)
         bloecke = []
         for s in res.sections:
             for p in s.parts:
@@ -187,7 +199,7 @@ class Workspace:
                                                 and (ln.conf < 80 or ln.uncertain or _ICD_VERLESEN.search(ln.text)))}
                                for ln in p.lines]})
         m = doc.meta
-        return {
+        out = {
             "status": res.status, "satz": STATUS_SATZ[res.status], "modell": res.llm, "art": doc.kind,
             "dokumente": [x.name for x in docs], "dokument": n, "roh": roh, "bloecke": bloecke,
             "vorlage": {"name": tpl.name, "abschnitte": [{"key": a["key"], "titel": a["titel"]} for a in tpl.abschnitte]},
@@ -196,9 +208,10 @@ class Workspace:
                          "detail": f.detail} for f in res.findings],
             "bundle": res.bundle if not any(f.severity == FEHLER for f in res.findings) else None,
         }
+        self._record(tid, doc.kind, res.status, out["befunde"], t0, "Abfrage" if t["art"] == "sql" else "Datei")   # Dateinamen können Patientennamen enthalten
+        return out
 
     def export(self, tid: str, ordner: str, cfg: dict | None = None) -> dict:
-        d = self.dir(tid)
         t = self.task(tid)
         if t["art"] == "sql" and t["modus"] == "felder":
             if not ordner.strip():
@@ -218,72 +231,37 @@ class Workspace:
             except OSError as exc:
                 raise ApiError(400, f"Ablage fehlgeschlagen: {exc}") from exc
             return {"datei": f"{n} Bundles in {target}"}
-        if not (d / "bundle.json").exists():
+        data = self.bundle(tid)
+        if not data:
             raise ApiError(409, "Kein zustellbares Bundle. Erst ausführen und Fehler beheben.")
         if not ordner.strip():
             raise ApiError(400, "Abholordner eintragen.")
         target = Path(ordner)
         try:
             target.mkdir(parents=True, exist_ok=True)
-            bundle = json.loads((d / "bundle.json").read_text("utf-8"))
+            bundle = json.loads(data.decode("utf-8"))
             comp = next(e["resource"] for e in bundle["entry"] if e["resource"]["resourceType"] == "Composition")
             name = _safe(comp["identifier"]["value"]) + ".json"
-            _atomic(target / name, (d / "bundle.json").read_bytes())
+            _atomic(target / name, data)
         except OSError as exc:
             raise ApiError(400, f"Ablage fehlgeschlagen: {exc}") from exc
         return {"datei": str(target / name)}
 
 
-def handle(ws: Workspace, cfg: dict, method: str, path: str, query: dict, body: bytes):
-    """Kleine JSON-Schnittstelle der Workbench. Liefert (Status, dict oder bytes)."""
-    parts = [p for p in path.split("/") if p][1:]              # ohne "api"
-
-    def js():
-        try:
-            return json.loads(body.decode("utf-8") or "{}")
-        except (ValueError, UnicodeDecodeError) as exc:
-            raise ApiError(400, "Kein gültiges JSON.") from exc
-
-    if parts == ["erschliessen"] and method == "POST":
-        from . import discovery
-        body_js = js()
-        db = str(body_js.get("db") or "")
-        if not db:
-            raise ApiError(400, "Datenbankadresse eintragen.")
-        store = ws.root / "erschliessung.json"
-        alle = json.loads(store.read_text("utf-8")) if store.exists() else {}
-        ent = {**alle.get(db, {}), **{str(k): str(v) for k, v in (body_js.get("entscheidungen") or {}).items()
-                                      if v in discovery.BEDEUTUNGEN or v == discovery.UNGEKLAERT}}
-        if body_js.get("entscheidungen"):
-            ws.root.mkdir(parents=True, exist_ok=True)
-            alle[db] = ent
-            _atomic(store, json.dumps(alle, ensure_ascii=False, indent=1).encode("utf-8"))
-        llm, _ = make_llm(cfg)
-        try:
-            schema = discovery.crawl(db, with_values=True)
-        except discovery.DiscoveryError as exc:
-            raise ApiError(400, str(exc)) from exc
-        return 200, discovery.analyse(schema, ent, llm)
-    if parts == ["baum"]:
-        if method == "PUT":
-            ws.save_tree(js())
-        return 200, {**ws.tree(), "vorlagen": list_templates()}
-    if len(parts) >= 2 and parts[0] == "aufgabe":
-        tid, rest = parts[1], parts[2:]
-        if not rest:
-            if method == "PUT":
-                return 200, ws.save_task(tid, js())
-            return 200, ws.task(tid)
-        if rest == ["quelle"] and method == "POST":
-            ws.save_source(tid, query.get("name", "quelle"), body)
-            return 200, ws.task(tid)
-        if rest == ["lauf"] and method == "POST":
-            return 200, ws.run(tid, cfg)
-        if rest == ["ablegen"] and method == "POST":
-            return 200, ws.export(tid, js().get("ordner", ""), cfg)
-        if rest == ["bundle"] and method == "GET":
-            p = ws.dir(tid) / "bundle.json"
-            if not p.exists():
-                raise ApiError(404, "Kein Bundle vorhanden.")
-            return 200, p.read_bytes()
-    raise ApiError(404, "Unbekannter Pfad.")
+def discover(ws: Workspace, cfg: dict, db: str, entscheidungen: dict | None) -> dict:
+    from . import discovery
+    if not db:
+        raise ApiError(400, "Datenbankadresse eintragen.")
+    from .sqlsource import public_url
+    key = public_url(db)                                         # nie mit Passwort speichern
+    ent = ws.store.decisions(key)
+    neu = {str(k): str(v) for k, v in (entscheidungen or {}).items() if v in discovery.BEDEUTUNGEN or v == discovery.UNGEKLAERT}
+    if neu:
+        ent.update(neu)
+        ws.store.save_decisions(key, ent)
+    llm, _ = make_llm(cfg)
+    try:
+        schema = discovery.crawl(db, with_values=True)
+    except discovery.DiscoveryError as exc:
+        raise ApiError(400, str(exc)) from exc
+    return discovery.analyse(schema, ent, llm)

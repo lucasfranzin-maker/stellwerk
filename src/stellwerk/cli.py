@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -153,16 +154,18 @@ def cmd_doctor(args, cfg) -> int:
 
 
 def cmd_serve(args, cfg) -> int:
-    from .server import serve
+    import uvicorn
+
+    from .app import create_app
+    if args.out:
+        cfg["ausgabe"] = args.out
     if args.host not in ("127.0.0.1", "localhost", "::1"):
-        print("ACHTUNG  Der Dienst hat keine Anmeldung und verarbeitet Patientendaten. "
+        print("ACHTUNG  Der Dienst hat noch keine Anmeldung und verarbeitet Patientendaten. "
               "Nur in einem geschützten Netz oder hinter einem Reverse-Proxy mit Anmeldung betreiben.", file=sys.stderr)
-    srv = serve(args.host, args.port, cfg, args.out or cfg["ausgabe"])
-    print(f"Stellwerk läuft auf http://{args.host}:{args.port}  (Seite zum Ausprobieren: /, Schnittstelle: POST /v1/convert)")
-    try:
-        srv.serve_forever()
-    except KeyboardInterrupt:
-        pass
+    app = create_app(cfg)
+    print(f"Stellwerk läuft auf http://{args.host}:{args.port}  (Datenbank: {app.state.store.engine.dialect.name})")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning", access_log=False, proxy_headers=True,
+                forwarded_allow_ips=os.environ.get("STELLWERK_PROXY_IPS", "127.0.0.1"), server_header=False)
     return 0
 
 
@@ -170,9 +173,23 @@ def cmd_mllp(args, cfg) -> int:
     from .mllp import serve
     print(f"Stellwerk empfängt HL7 v2 per MLLP auf {args.host}:{args.port}. Ausgabe nach {args.out or cfg['ausgabe']}.")
     try:
-        asyncio.run(serve(args.host, args.port, cfg, args.out or cfg["ausgabe"], args.vorlage))
+        from .db import Store
+        store = Store(cfg["datenbank"])
+        store.migrate()
+        asyncio.run(serve(args.host, args.port, cfg, args.out or cfg["ausgabe"], args.vorlage, store=store))
     except KeyboardInterrupt:
         pass
+    return 0
+
+
+def cmd_migrate(args, cfg) -> int:
+    from .db import Store
+    if args.sql:
+        print(Store.migration_sql(args.sql), end="")
+        return 0
+    st = Store(cfg["datenbank"])
+    st.migrate()
+    print(f"Datenbankschema ist aktuell ({st.engine.dialect.name}).")
     return 0
 
 
@@ -228,9 +245,12 @@ def main(argv: list[str] | None = None) -> int:
     e.set_defaults(fn=cmd_discover)
     d = sub.add_parser("doctor", help="Einrichtung prüfen: Texterkennung, lokales Modell, Konfiguration")
     d.set_defaults(fn=cmd_doctor)
+    mg = sub.add_parser("migrate", help="Datenbankschema anlegen oder auf den neuesten Stand bringen")
+    mg.add_argument("--sql", metavar="DIALEKT", choices=["postgresql", "sqlite"], help="nur das SQL ausgeben, z. B. für die Datenbankverwaltung")
+    mg.set_defaults(fn=cmd_migrate)
     i = sub.add_parser("init", help="stellwerk.yaml mit kommentierten Vorgaben anlegen")
     i.set_defaults(fn=cmd_init)
-    h = sub.add_parser("serve", help="HTTP-Dienst mit Seite zum Ausprobieren starten")
+    h = sub.add_parser("serve", help="Workbench und HTTP-Schnittstelle starten")
     h.add_argument("--host", default="127.0.0.1")
     h.add_argument("--port", type=int, default=8080)
     common(h, False)

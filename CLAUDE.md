@@ -93,8 +93,10 @@ The owner rejected the generic "AI-made SaaS" look. Do not drift back to it. Ban
 - Layout: explorer tree (user-defined folders and tasks) | source | mapping | FHIR output. Model proposals appear inline in the mapping pane with Accept/Reject, never as chat.
 - Backlog: pipeline designer.
 
-## 7b. Target architecture (decided 2026-11-14, not yet built)
-- Backend moves from the stdlib server to **FastAPI** with a database (SQLite on-premise, PostgreSQL in the cloud), shipped as a Docker image.
+## 7b. Architecture (decided 2026-11-14)
+- **Built:** FastAPI app in `app.py` (`create_app(cfg)`), SQLAlchemy 2 models and `Store` in `db.py`, Alembic migrations in `stellwerk/migrations` (applied on start; add a new revision for every schema change, never edit `0001`). SQLite on-premise, PostgreSQL in the cloud. Dockerfile and `compose.yaml`. Operational docs: `docs/betrieb.md`.
+- The run log (`lauf`) and audit log never contain patient data or file names: only channel, system name, status, durations, finding codes.
+- Database addresses with a literal password are refused; passwords come from `${STELLWERK_DB_*}` placeholders.
 - Frontend becomes a **React** app. Built assets are committed/packaged so a hospital install needs no Node and no network. This supersedes "one HTML file without a build step" once the migration lands; the visual system in 7a stays.
 - Login via **OIDC / Active Directory** with roles; no local password store.
 - LLM access may go through a gateway that shields clinic-to-cloud traffic; see `docs/anforderungen.md`.

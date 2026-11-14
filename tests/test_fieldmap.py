@@ -4,7 +4,6 @@ from fhir.resources.R4B.bundle import Bundle
 
 from stellwerk import fieldmap
 from stellwerk.sqlsource import run_query
-from stellwerk.workbench import Workspace, handle
 
 Q = "SELECT * FROM PAT_LAB_RESULTS ORDER BY auftrag_nr"
 REGELN = {"pat_id": {"ziel": "patient.id"}, "fall_nr": {"ziel": "fall.id"}, "auftrag_nr": {"ziel": "auftrag.id"},
@@ -49,22 +48,21 @@ def test_ohne_pflichtzuordnung_kein_bundle(bsp, cfg):
     assert {"MAP_STATUS", "MAP_AUFTRAG", "MAP_ZEIT", "MAP_OHNE_EINHEIT"} <= {x.code for x in f}
 
 
-def test_workbench_feldmodus(bsp, cfg, tmp_path):
-    ws = Workspace(str(tmp_path / "ws"))
-    call = lambda m, p, body=None: handle(ws, cfg, m, "/api/" + p, {}, json.dumps(body).encode() if body is not None else b"")[1]   # noqa: E731
+def test_workbench_feldmodus(bsp, api, tmp_path):
     t = {"art": "sql", "modus": "felder", "db": f"sqlite:///{bsp / 'kis.db'}", "abfrage": Q}
-    call("PUT", "aufgabe/task000003", t)
-    r = call("POST", "aufgabe/task000003/lauf")
+    api("PUT", "aufgabe/task000003", t)
+    r = api("POST", "aufgabe/task000003/lauf")
     assert r["status"] == "fehler" and r["bundle"] is None
     assert next(c for c in r["spalten"] if c["name"] == "crp")["vorschlag"]["loinc"] == "1988-5"
-    call("PUT", "aufgabe/task000003", {**t, "dokument": 2, "felder": {"regeln": REGELN, "status": "final", "abgelehnt": ["hb_wert"]}})
-    r = call("POST", "aufgabe/task000003/lauf")
-    assert r["status"] == "pruefen" and r["bundles"] == 4 and r["bundle"]["entry"][1]["resource"]["valueQuantity"]["value"] == "@@dez:97@@"
+    api("PUT", "aufgabe/task000003", {**t, "dokument": 2, "felder": {"regeln": REGELN, "status": "final", "abgelehnt": ["hb_wert"]}})
+    r = api("POST", "aufgabe/task000003/lauf")
+    assert r["status"] == "pruefen" and r["bundles"] == 4 and r["bundle"]["entry"][1]["resource"]["valueQuantity"]["value"] == 97
     assert next(c for c in r["spalten"] if c["name"] == "hb_wert")["vorschlag"] is None
-    out = call("POST", "aufgabe/task000003/ablegen", {"ordner": str(tmp_path / "ab")})
+    assert '"value": 1.10' not in r["bundle_text"] and '"value": 97' in r["bundle_text"]
+    out = api("POST", "aufgabe/task000003/ablegen", {"ordner": str(tmp_path / "ab")})
     files = sorted((tmp_path / "ab").iterdir())
     assert out["datei"].startswith("4 Bundles") and len(files) == 4 and '"value": 1.10' in files[0].read_text("utf-8")
-
+    assert b'"value": 97' in api("GET", "aufgabe/task000003/bundle")
 
 def test_spaltenprofil(bsp):
     cols, rows = run_query(f"sqlite:///{bsp / 'kis.db'}", Q)

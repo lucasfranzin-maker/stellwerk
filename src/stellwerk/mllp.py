@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -18,7 +19,7 @@ from .report import STATUS
 SB, EB, CR = b"\x0b", b"\x1c", b"\x0d"
 
 
-def handle_message(raw: bytes, cfg: dict, outdir: str, vorlage: str | None = None) -> tuple[bytes, list]:
+def handle_message(raw: bytes, cfg: dict, outdir: str, vorlage: str | None = None, store=None) -> tuple[bytes, list]:
     """Speichert, verarbeitet und liefert (ACK, Ergebnisse)."""
     if not raw.lstrip().startswith(b"MSH"):
         return hl7v2.ack(raw, "AR", "Keine HL7-Nachricht"), []
@@ -33,16 +34,20 @@ def handle_message(raw: bytes, cfg: dict, outdir: str, vorlage: str | None = Non
     try:
         llm, note = make_llm(cfg)
         for doc in ingest(raw, name, cfg):
+            t0 = time.monotonic()
             res = process(doc, cfg, vorlage, llm, note)
             deliver(res, cfg)
             write_outputs(res, outdir)
+            if store is not None:
+                from .app import record
+                record(store, "mllp", res, t0)
             results.append(res)
     except Exception as exc:                                    # Verarbeitung darf den Empfang nie stören
         print(f"FEHLER   {name}: Verarbeitung abgebrochen ({exc}). Die Nachricht liegt in {spool / name}.", file=sys.stderr)
     return hl7v2.ack(raw, "AA"), results
 
 
-async def _client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, cfg, outdir, vorlage):
+async def _client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, cfg, outdir, vorlage, store=None):
     buf = b""
     try:
         while True:
@@ -54,7 +59,7 @@ async def _client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, cf
                 frame, buf = buf.split(EB, 1)
                 buf = buf.lstrip(CR)
                 raw = frame.split(SB, 1)[-1]
-                ackmsg, results = await asyncio.to_thread(handle_message, raw, cfg, outdir, vorlage)
+                ackmsg, results = await asyncio.to_thread(handle_message, raw, cfg, outdir, vorlage, store)
                 writer.write(SB + ackmsg + EB + CR)
                 await writer.drain()
                 for r in results:
@@ -63,8 +68,8 @@ async def _client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, cf
         writer.close()
 
 
-async def serve(host: str, port: int, cfg: dict, outdir: str, vorlage: str | None = None, ready=None):
-    server = await asyncio.start_server(lambda r, w: _client(r, w, cfg, outdir, vorlage), host, port)
+async def serve(host: str, port: int, cfg: dict, outdir: str, vorlage: str | None = None, ready=None, store=None):
+    server = await asyncio.start_server(lambda r, w: _client(r, w, cfg, outdir, vorlage, store), host, port)
     if ready is not None:
         ready(server.sockets[0].getsockname()[1])
     async with server:

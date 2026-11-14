@@ -1,21 +1,21 @@
 # Anforderungen: Stand und Reihenfolge
 
-Stand 14.11.2026. „Getestet“ heißt: automatische Tests mit erfundenen Daten in diesem Repo.
+Stand 14.11.2026, Version 0.2. „Getestet“ heißt: automatische Tests mit erfundenen Daten in diesem Repo.
 
 | Anforderung | Stand | Was es gibt | Was fehlt |
 |---|---|---|---|
 | Datenbank automatisch erschließen | teilweise | `stellwerk discover` und `POST /api/erschliessen`: Schema lesen, Bedeutung je Spalte mit Begründung, zusammengehörige Felder, Beziehungen (erklärt und vermutet), Entscheidungen des Menschen werden gespeichert und haben Vorrang | Oberfläche dafür; Test an Oracle/MSSQL/PostgreSQL (nur SQLite getestet); große Schemata (Laufzeit, Blättern) |
 | LLM lokal oder extern | teilweise | Ollama und OpenAI-kompatible Server; API-Schlüssel aus Umgebungsvariable; externes Modell nur nach Freigabe, wahlweise nur Metadaten oder alle Daten | Anbieter mit eigener Schnittstelle; Gateway/Schleuse; Test mit echtem Modell |
 | Zugriff über MCP bzw. abschirmende Zwischenschicht | offen | – | siehe unten |
-| On-Premise oder Cloud | offen | läuft als Python-Paket | Docker-Image, Compose, Konfiguration über Umgebungsvariablen, PostgreSQL |
-| Zeitgemäßer Stack | offen | Standardserver, Dateien als Ablage, eine HTML-Seite | FastAPI, Datenbank, React (entschieden) |
-| Härtung | offen | nur lesende SQL-Abfragen, Pfadprüfung, externes LLM gesperrt, Dienst bindet an localhost | Anmeldung, Rechte, TLS, Sicherheits-Header, Audit-Protokoll, Geheimnisse, Abhängigkeitsprüfung |
+| On-Premise oder Cloud | weitgehend | Python-Paket, Dockerfile und Compose (ohne Root, schreibgeschützt), Konfiguration über Umgebungsvariablen, SQLite oder PostgreSQL | Image hier nicht gebaut (keine Registry erreichbar); PostgreSQL nicht gegen einen Server getestet; Helm-Chart für Kubernetes |
+| Zeitgemäßer Stack | teilweise | FastAPI, SQLAlchemy 2, Alembic-Migrationen, uvicorn | React-Oberfläche (entschieden) |
+| Härtung | teilweise | nur lesende SQL-Abfragen, Pfadprüfung, externes LLM gesperrt, Dienst bindet an localhost, Sicherheits-Header (CSP, nosniff, frame-ancestors), Größenlimit, keine Passwörter in Datenbankadressen, Audit-Protokoll, Container ohne Root | Anmeldung und Rechte, TLS-Leitfaden, CSP ohne `unsafe-inline` (kommt mit React), Abhängigkeitsprüfung in CI |
 | Nutzerverwaltung | offen | – | OIDC/AD, Rollen, Sitzungen (entschieden) |
-| Monitoring, Customizing, Alerting | offen | Prüfbericht je Lauf | Laufhistorie, Kennzahlen je Schnittstelle, Schwellen, Benachrichtigung |
+| Monitoring, Customizing, Alerting | begonnen | Laufprotokoll je Lauf (Workbench, HTTP, MLLP) ohne Patientendaten, `/healthz`, `/readyz` | Kennzahlen je Schnittstelle, Oberfläche, Schwellen, Benachrichtigung |
 
 ## Reihenfolge
 
-1. **Unterbau:** FastAPI, Datenbank (Projekte, Aufgaben, Läufe, Audit), Docker. Bestehende Schnittstelle bleibt erhalten.
+1. ~~**Unterbau:** FastAPI, Datenbank (Projekte, Aufgaben, Läufe, Audit), Docker.~~ Erledigt in 0.2, siehe [betrieb.md](betrieb.md).
 2. **Anmeldung und Härtung:** OIDC, Rollen, Sitzungen, Sicherheits-Header, Audit-Protokoll. Vorher darf der Dienst nicht ins Netz.
 3. **React-Oberfläche** im bestehenden Erscheinungsbild, zuerst Workbench und Erschließung.
 4. **Monitoring und Alerting** auf der Laufhistorie.

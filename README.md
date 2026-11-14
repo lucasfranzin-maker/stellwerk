@@ -4,7 +4,8 @@ Stellwerk macht aus HL7-v2-Nachrichten, SQL-Abfragen und PDFs eine FHIR-Composit
 Kommunikationsserver wie Cloverleaf fast fertig an ein CDR weiterreichen kann. Dazu gibt es einen
 Prüfbericht, der sagt, was zu prüfen ist und was man dann tut.
 
-Stand: Version 0.1, Prototyp. Was getestet ist und was nicht, steht unter [Grenzen](#grenzen).
+Stand: Version 0.2, Prototyp. Was getestet ist und was nicht, steht unter [Grenzen](#grenzen).
+Installation im Haus oder in der Cloud: [docs/betrieb.md](docs/betrieb.md).
 
 ## In fünf Minuten
 
@@ -128,7 +129,8 @@ Anbindung an Cloverleaf: [docs/cloverleaf.md](docs/cloverleaf.md).
 - Das Original-PDF steht nicht im Bundle, sondern im Ausgabeordner.
 - Kopfzeilen, die nur auf einer Folgeseite stehen, werden nicht als Kopfzeile erkannt und landen im Abschnitt.
 - Numerische `OBX` werden als Textzeilen übernommen, nicht als Observation.
-- Der HTTP-Dienst und die Workbench haben keine Anmeldung und keine Benutzerverwaltung.
+- Der HTTP-Dienst und die Workbench haben noch keine Anmeldung und keine Benutzerverwaltung (geplant: OIDC/AD).
+- Das Docker-Image und der Betrieb mit PostgreSQL sind nicht getestet.
 - Das Feld-Mapping kennt eine feste Liste von Zielfeldern (Patient, Fallbezug, Laborwert mit LOINC, Einheit, Zeitpunkt) und erzeugt je Zeile eine Transaktion. Es gibt kein freies Regelwerk, keinen Terminologieserver und keine MII-Profilangabe.
 - Werte werden nie umgerechnet. Nicht-numerische Werte wie `<0,6` stehen als Text im Bundle; gemischte Einheiten werden gemeldet.
 - Die LOINC-Vorschlagsliste ist klein (neun Laborwerte) und nicht gegen eine aktuelle LOINC-Version geprüft.

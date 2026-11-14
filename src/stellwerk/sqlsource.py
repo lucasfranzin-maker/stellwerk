@@ -45,6 +45,38 @@ _SUFFIX = re.compile(r"(_?(txt|text|inhalt|memo|lang))$")
 _SCHREIBEND = re.compile(r"\b(insert|update|delete|drop|alter|create|truncate|merge|grant|revoke|exec|execute|call|attach|pragma|replace)\b", re.I)
 
 
+_PLATZHALTER = re.compile(r"\$\{(STELLWERK_DB_[A-Z0-9_]+)\}")
+
+
+def resolve_url(db: str) -> str:
+    """${STELLWERK_DB_...} in der Adresse durch die Umgebungsvariable ersetzen. So steht kein Passwort in Aufgaben oder Dateien."""
+    import os
+
+    at = db.find("@", db.find("://") + 3) if "://" in db else -1
+
+    def sub(m: re.Match) -> str:
+        val = os.environ.get(m.group(1))
+        if val is None:
+            raise SqlError(f"Die Umgebungsvariable {m.group(1)} ist nicht gesetzt.")
+        if 0 <= m.start() < at:                                  # Teil der Anmeldedaten: für die URL kodieren
+            from urllib.parse import quote
+            return quote(val, safe="")
+        return val
+    return _PLATZHALTER.sub(sub, db)
+
+
+def public_url(db: str) -> str:
+    """Adresse ohne Passwort, für Protokoll und als Schlüssel."""
+    m = re.match(r"^([a-z0-9+]+://)([^:/@]+):([^@]*)@(.*)$", db, re.I)
+    if m and not _PLATZHALTER.fullmatch(m.group(3)):
+        return f"{m.group(1)}{m.group(2)}:***@{m.group(4)}"
+    return db
+
+
+def has_password(db: str) -> bool:
+    return public_url(db) != db
+
+
 def check_readonly(query: str) -> None:
     q = re.sub(r"--[^\n]*|/\*.*?\*/", " ", query, flags=re.S).strip().rstrip(";").strip()
     if ";" in q:
@@ -55,6 +87,7 @@ def check_readonly(query: str) -> None:
 
 def run_query(db: str, query: str, limit: int | None = None) -> tuple[list[str], list[tuple]]:
     check_readonly(query)
+    db = resolve_url(db)
     if db.startswith("sqlite:///"):
         path = Path(db[len("sqlite:///"):])
         if not path.exists():
