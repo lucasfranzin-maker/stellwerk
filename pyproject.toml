@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "stellwerk"
 version = "0.2.0"
-description = "HL7 v2, SQL und PDF robust in FHIR-Compositions (ISiK) überführen, mit lokalem LLM und Prüfbericht"
+description = "Schnittstellen ins FHIR-CDR entwerfen: HL7 v2, KIS-Datenbanken und PDF in FHIR überführen, mit Prüfbericht, Übergabepaket und BridgeLink-Kanal"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

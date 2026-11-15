@@ -272,3 +272,17 @@ def test_aufbewahrungsfristen_werden_geprueft(ws, lis, cfg2):
         cfg2["bridgelink"]["kanal"]["inhalt_tage"] = wert
         with pytest.raises(ApiError, match="inhalt_tage"):
             schnittstelle.felder_kanal(ws, "task000001", cfg2)
+
+
+def test_vorschlag_nennt_nur_vergleichbare_spalten_als_kriterium(tmp_path):
+    """Der Kanal lehnt Text als Kriterium ab; die Abfragevorschläge dürfen ihn deshalb nicht empfehlen."""
+    from stellwerk import discovery
+    con = sqlite3.connect(tmp_path / "x.db")
+    con.execute("CREATE TABLE LABORBEFUND (lfd_nr INTEGER PRIMARY KEY, auftrag_nr TEXT, pat_id TEXT, abnahme_zeit TIMESTAMP, krea_wert TEXT, krea_einheit TEXT)")
+    con.executemany("INSERT INTO LABORBEFUND VALUES (?,?,?,?,?,?)", [(i, f"L-{i}", "4711", f"2026-11-0{i} 08:00:00", "1,1", "mg/dl") for i in range(1, 5)])
+    con.commit()
+    con.close()
+    res = discovery.analyse(discovery.crawl(f"sqlite:///{tmp_path / 'x.db'}"))
+    (a,) = discovery.propose_queries(res)
+    hinweis = next(h for h in a["hinweise"] if "laufenden Betrieb" in h)
+    assert "lfd_nr (laufende Nummer)" in hinweis and "abnahme_zeit (Zeitstempel)" in hinweis and "auftrag_nr" not in hinweis

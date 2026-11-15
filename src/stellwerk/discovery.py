@@ -39,6 +39,9 @@ class DiscoveryError(Exception):
     pass
 
 
+_ZAHLTYP = re.compile(r"INT|SERIAL|NUMERIC|DECIMAL|NUMBER|FLOAT|DOUBLE|REAL", re.I)
+_ZEITTYP = re.compile(r"TIMESTAMP|DATETIME", re.I)
+
 def crawl(db: str, sample: int = 200, with_values: bool = True) -> dict:
     """Schema lesen. sample > 0 liest je Tabelle so viele Zeilen für das Profil (nur lesend)."""
     from .sqlsource import SqlError, resolve_url
@@ -350,10 +353,13 @@ def propose_queries(res: dict) -> list[dict]:
         unklar = [c["name"] for c in t["spalten"] if c["bedeutung"] == UNGEKLAERT]
         if unklar:
             hinweise.append(f"Bedeutung ungeklärt: {', '.join(unklar)}. Die Spalten stehen in der Abfrage; in der Zuordnung entscheiden, ob sie gebraucht werden.")
-        neu_krit = [c["name"] for c in t["spalten"] if c["bedeutung"] in ("zeitpunkt", "auftrag_id", "dokument_id")]
-        hinweise.append("Für den laufenden Betrieb ein Kriterium für neue Zeilen ergänzen"
-                        + (f" (Kandidaten: {', '.join(neu_krit)})" if neu_krit else "")
-                        + ". Als Text gespeicherte Datumswerte lassen sich nicht zuverlässig vergleichen.")
+        # Der BridgeLink-Kanal braucht eine Spalte, die je Zeile steigt und sich vergleichen lässt: Zahl oder echter Zeitstempel, nie Text.
+        zahl = [c["name"] for c in t["spalten"] if _ZAHLTYP.search(c["typ"]) and (c["pk"] or c["bedeutung"] in ("auftrag_id", "dokument_id"))]
+        zeit = [c["name"] for c in t["spalten"] if _ZEITTYP.search(c["typ"]) and c["bedeutung"] == "zeitpunkt"]
+        kand = [f"{n} (laufende Nummer)" for n in zahl] + [f"{n} (Zeitstempel)" for n in zeit]
+        hinweise.append("Für den laufenden Betrieb braucht die Abfrage eine Spalte, die je Zeile steigt, als Zahl oder Zeitstempel gespeichert "
+                        + (f"(Kandidaten: {', '.join(kand)})." if kand else "(keine passende Spalte erkannt; im KIS eine laufende Nummer erfragen oder in einer Sicht ergänzen).")
+                        + " Text, auch Datumswerte als Text, lässt sich nicht zuverlässig vergleichen.")
         out.append({"name": f"{t['klasse']} aus {t['name']}", "tabelle": t["name"], "klasse": t["klasse"],
                     "modus": "felder" if t["klasse"] == "Messwerte" else "dokument", "sql": "\n".join(sql) + "\n",
                     "verknuepfungen": verkn, "hinweise": hinweise,

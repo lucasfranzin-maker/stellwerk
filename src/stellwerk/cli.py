@@ -320,7 +320,7 @@ def cmd_init(args, cfg) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="stellwerk", description="HL7 v2, SQL und PDF in FHIR-Compositions überführen.")
+    ap = argparse.ArgumentParser(prog="stellwerk", description="Schnittstellen ins FHIR-CDR entwerfen: HL7 v2, SQL und PDF in FHIR überführen.")
     ap.add_argument("--version", action="version", version=__version__)
     ap.add_argument("--config", help="Pfad zur Konfiguration (Vorgabe: ./stellwerk.yaml)")
     sub = ap.add_subparsers(dest="cmd", required=True)
