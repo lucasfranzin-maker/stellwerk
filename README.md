@@ -91,7 +91,7 @@ stellwerk schnittstelle <Kennung> --einrichten  # in BridgeLink anlegen oder ers
 Oder in der Workbench unter „Prüfung und Ablage“. Der Kanal baut die Bundles mit derselben Datei, gegen die die Tests jeden
 Testfall des Übergabepakets prüfen, und wurde gegen BridgeLink 26.9.0 mit SQLite und PostgreSQL ausprobiert
 (Neustart, Warteschlange, Ziel ausgefallen, Zeitumstellung). Was geprüft ist, was nicht und welche Risiken bleiben
-(Aufbewahrung von Patientendaten, blockierte Warteschlange, kein TLS am Kanal-Eingang): [docs/bridgelink.md](docs/bridgelink.md).
+(Aufbewahrung von Patientendaten, abgelehnte Bundles, kein TLS am Kanal-Eingang): [docs/bridgelink.md](docs/bridgelink.md).
 
 Das Übergabepaket enthält Abfrage, Zuordnung (CSV, JSON), die Regeln für die Umsetzung und erfundene Testfälle mit erwartetem
 Bundle, keine Zeilen aus der Quelle (außer auf Wunsch). `stellwerk vergleichen` prüft, was ein nachgebauter Kanal liefert:

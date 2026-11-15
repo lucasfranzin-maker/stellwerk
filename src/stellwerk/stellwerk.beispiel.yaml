@@ -64,6 +64,8 @@ bridgelink:
     fhir_passwort_env:
     fhir_token_env:
     pruefablage:            # Ordner im BridgeLink-Server, Vorgabe /opt/bridgelink/appdata/stellwerk/pruefen
+    bei_ablehnung: abweisen # CDR lehnt ein Bundle dauerhaft ab (HTTP 400, 413, 415, 422): abweisen = nach <pruefablage>/abgelehnt, Rest läuft weiter;
+                            # warten = bleibt in der Warteschlange und hält alle folgenden auf (Reihenfolge bleibt)
     speicherung: PRODUCTION # Nachrichtenspeicherung in BridgeLink
     verschluesseln: true    # Nachrichteninhalte in BridgeLink verschlüsselt speichern
     inhalt_tage: 7          # Aufbewahrung der Nachrichteninhalte; greift erst mit eingeschaltetem Data Pruner in BridgeLink

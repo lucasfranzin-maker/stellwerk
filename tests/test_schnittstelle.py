@@ -286,3 +286,112 @@ def test_vorschlag_nennt_nur_vergleichbare_spalten_als_kriterium(tmp_path):
     (a,) = discovery.propose_queries(res)
     hinweis = next(h for h in a["hinweise"] if "laufenden Betrieb" in h)
     assert "lfd_nr (laufende Nummer)" in hinweis and "abnahme_zeit (Zeitstempel)" in hinweis and "auftrag_nr" not in hinweis
+
+
+# --- dauerhafte Ablehnung durch das CDR, Data Pruner ---------------------------------------------------------------------
+
+_HARNESS = """\
+const skript = require('fs').readFileSync(process.argv[2], 'utf8'), faelle = JSON.parse(process.argv[3]);
+const ergebnis = [];
+for (const f of faelle) {
+  const geschrieben = {};
+  const java = { io: {
+    File: function (a, b) { this.p = b === undefined ? a : a.p + '/' + b; this.mkdirs = function () {}; this.renameTo = (t) => { geschrieben[t.p] = geschrieben[this.p]; delete geschrieben[this.p]; }; },
+    FileOutputStream: function (file) { this.f = file; },
+    OutputStreamWriter: function (o) { this.write = (t) => { geschrieben[o.f.p] = t; }; this.close = function () {}; } } };
+  const karte = (o) => ({ get: (k) => (k in o ? o[k] : null) });
+  const msg = { getMessageId: () => 77, getEncodedData: () => 'AUS-DER-NACHRICHT' };
+  const fn = new Function('connectorMap', 'channelMap', 'connectorMessage', 'java', 'ERROR', 'responseStatus', 'responseStatusMessage',
+                          skript + '\\n;return [responseStatus, responseStatusMessage];');
+  const [st, text] = fn(karte(f.connector), karte(f.channel), msg, java, 'ERROR', 'QUEUED', '');
+  ergebnis.push({ status: st, text, dateien: geschrieben });
+}
+console.log(JSON.stringify(ergebnis));
+"""
+
+
+@pytest.mark.skipif(not NODE, reason="node ist nicht installiert")
+def test_ablehnung_nimmt_nur_dauerhafte_antworten_aus_der_warteschlange(tmp_path):
+    from stellwerk import bridgelink as bl
+    skript = tmp_path / "ablehnung.js"
+    skript.write_text(bl.ablehnung_skript({}, "/ablage/lis/"), encoding="utf-8")
+    harness = tmp_path / "h.js"
+    harness.write_text(_HARNESS, encoding="utf-8")
+    codes = [200, 201, 400, 401, 403, 404, 408, 409, 413, 415, 422, 429, 500, 503, 0]
+    faelle = [{"connector": {"responseStatusCode": c} if c else {}, "channel": {"stellwerkBundle": '{"resourceType":"Bundle"}'}} for c in codes]
+    faelle.append({"connector": {"responseStatusCode": 422}, "channel": {}})                      # Eingangskanal: Bundle nur in der Nachricht
+    r = subprocess.run([NODE, str(harness), str(skript), json.dumps(faelle)], capture_output=True, text=True, check=True)
+    erg = json.loads(r.stdout)
+    for c, e in zip(codes, erg):
+        if c in (400, 413, 415, 422):
+            assert e["status"] == "ERROR" and f"HTTP {c}" in e["text"], c
+            assert set(e["dateien"]) == {"/ablage/lis/abgelehnt/77.json", "/ablage/lis/abgelehnt/77.abgelehnt.txt"}
+            assert e["dateien"]["/ablage/lis/abgelehnt/77.json"] == '{"resourceType":"Bundle"}'
+            assert "Fehlerprotokoll" in e["dateien"]["/ablage/lis/abgelehnt/77.abgelehnt.txt"]
+        else:
+            assert e["status"] == "QUEUED" and e["dateien"] == {}, c                # Ausfall, Anmeldung, Zeitüberschreitung: wiederholen
+    assert erg[-1]["dateien"]["/ablage/lis/abgelehnt/77.json"] == "AUS-DER-NACHRICHT"
+
+
+def test_ablehnung_ist_einstellbar_und_steht_in_beiden_kanaelen(ws, lis, cfg2):
+    from stellwerk import bridgelink as bl
+    assert bl.ablehnung_skript({"bei_ablehnung": "warten"}, "/x") == ""
+    with pytest.raises(bl.BridgeLinkError, match="abweisen"):
+        bl.ablehnung_skript({"bei_ablehnung": "wegwerfen"}, "/x")
+
+    def antwort_skripte(xml):
+        wurzel = ET.fromstring(xml)
+        return {c.findtext("name"): c.findtext("responseTransformer/elements//script") for c in wurzel.iter("connector")
+                if c.findtext("metaDataId") != "0"}
+    aufgabe(ws, lis)
+    skripte_ = antwort_skripte(schnittstelle.felder_kanal(ws, "task000001", cfg2).xml)
+    assert "ERROR" in skripte_["FHIR-Ziel"] and skripte_["Prüfablage"] is None and skripte_["Prüfhinweise"] is None
+    cfg2["bridgelink"]["kanal"]["bei_ablehnung"] = "warten"
+    k = schnittstelle.felder_kanal(ws, "task000001", cfg2)
+    assert antwort_skripte(k.xml)["FHIR-Ziel"] is None and any("hält alle folgenden auf" in h for h in k.hinweise)
+    cfg2["bridgelink"]["kanal"]["bei_ablehnung"] = "abweisen"
+    assert any("nicht aufgehalten" in h for h in schnittstelle.felder_kanal(ws, "task000001", cfg2).hinweise)
+    cfg2["bridgelink"]["kanal"]["bei_ablehnung"] = "egal"
+    with pytest.raises(ApiError, match="bei_ablehnung"):
+        schnittstelle.felder_kanal(ws, "task000001", cfg2)
+
+    from stellwerk import config
+    cid, xml = bl.channel_xml({**config.DEFAULTS["bridgelink"]["kanal"], "fhir_ziel": "http://cdr.haus/fhir", "pruefablage": "/ablage"}, "u", "p")
+    assert "ERROR" in antwort_skripte(xml)["FHIR-Ziel"]
+
+
+def test_data_pruner_zustand(monkeypatch):
+    from stellwerk import bridgelink as bl
+    antworten = {}
+
+    def fake(self, method, path, *a, **k):
+        if isinstance(antworten["wert"], Exception):
+            raise antworten["wert"]
+        return 200, json.dumps({"properties": {"property": [{"@name": "archiveEnabled", "$": "<boolean>false</boolean>"},
+                                                            {"@name": "enabled", "$": antworten["wert"]}]}}).encode()
+    monkeypatch.setattr(bl.BridgeLink, "login", lambda self: None)
+    monkeypatch.setattr(bl.BridgeLink, "_call", fake)
+    monkeypatch.setenv("STELLWERK_BRIDGELINK_PASSWORT", "x")
+    server = bl.BridgeLink({"api": "https://bl:8443/api", "benutzer": "a"})
+    antworten["wert"] = True
+    assert server.pruner_aktiv() is True and server.pruner_hinweis() == ""
+    antworten["wert"] = False
+    assert server.pruner_aktiv() is False and "ausgeschaltet" in server.pruner_hinweis() and "Patientendaten" in server.pruner_hinweis()
+    antworten["wert"] = bl.BridgeLinkError("nicht erreichbar")
+    assert server.pruner_aktiv() is None and "nicht lesen" in server.pruner_hinweis()
+
+
+def test_einrichten_meldet_ausgeschalteten_pruner(ws, lis, cfg2, monkeypatch):
+    from stellwerk import bridgelink as bl
+    aufgabe(ws, lis)
+    k = schnittstelle.felder_kanal(ws, "task000001", cfg2)
+    cfg2["bridgelink"].update(api="https://bl:8443/api", benutzer="a")
+    monkeypatch.setenv("STELLWERK_BRIDGELINK_PASSWORT", "x")
+    monkeypatch.setattr(bl.BridgeLink, "install", lambda self, cid, xml: "angelegt")
+    monkeypatch.setattr(bl.BridgeLink, "pruner_aktiv", lambda self: False)
+    vorher = len(k.hinweise)
+    assert schnittstelle.einrichten(k, cfg2) == "angelegt" and "Data Pruner" in k.hinweise[-1] and len(k.hinweise) == vorher + 1
+    monkeypatch.setattr(bl.BridgeLink, "pruner_aktiv", lambda self: True)
+    k2 = schnittstelle.felder_kanal(ws, "task000001", cfg2)
+    schnittstelle.einrichten(k2, cfg2)
+    assert not any("Data Pruner" in h for h in k2.hinweise)

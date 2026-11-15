@@ -316,7 +316,7 @@ def _felder_kanal(ws: Workspace, tid: str, cfg: dict, version: str) -> Kanal:
     dests = []
     if ziel:
         dests.append(bl._connector(1, "FHIR-Ziel", bl.fhir_ziel_props(k), "HTTP Sender",
-                                   bl._filter("Freigegebene Bundles", "return $('stellwerkStatus') == 'ok';")))
+                                   bl._filter("Freigegebene Bundles", "return $('stellwerkStatus') == 'ok';"), bl.ablehnung_skript(k, ablage)))
     dests.append(bl._connector(len(dests) + 1, "Prüfablage" if ziel else "Ablage", bl.datei_props(ablage), "File Writer",
                                bl._filter("Bundles mit Prüfpunkten" if ziel else "Alle Bundles",
                                           "return $('stellwerkStatus') != 'ok';" if ziel else "return true;")))
@@ -331,6 +331,13 @@ def _felder_kanal(ws: Workspace, tid: str, cfg: dict, version: str) -> Kanal:
     hinweise = []
     if not ziel:
         hinweise.append("bridgelink.kanal.fhir_ziel ist leer: Alle Bundles landen in der Ablage im BridgeLink-Server, keines geht an ein CDR.")
+    if ziel and k.get("bei_ablehnung", "abweisen") == "warten":
+        hinweise.append("bei_ablehnung ist „warten“: Lehnt das CDR ein Bundle dauerhaft ab (HTTP 400, 422), bleibt es in der Warteschlange "
+                        "und hält alle folgenden auf, bis jemand in BridgeLink eingreift.")
+    elif ziel:
+        hinweise.append(f"Lehnt das CDR ein Bundle dauerhaft ab (HTTP {', '.join(map(str, bl.ABLEHNUNG_CODES))}), geht es als Fehler in das "
+                        f"Dashboard von BridgeLink und mit Hinweis in {ablage}/abgelehnt; die folgenden Bundles werden nicht aufgehalten. "
+                        "Bei Ausfall oder Anmeldefehlern (401, 403, 5xx) wartet es in der Warteschlange.")
     if K["spalte"]:
         hinweise.append(f"Neue Zeilen: Spalte „{K['spalte']}“, größer als der Stand in {K['standDatei']}. Ohne diese Datei liest der erste Lauf "
                         + (f"ab Wert {K['start']}." if K["start"] else "alle Zeilen (bis zu den Zeilen je Lauf, dann beim nächsten Lauf weiter)."))
@@ -345,10 +352,17 @@ def _felder_kanal(ws: Workspace, tid: str, cfg: dict, version: str) -> Kanal:
 
 
 def einrichten(kanal: Kanal, cfg: dict) -> str:
-    """Kanal in BridgeLink anlegen oder ersetzen und bereitstellen. Liefert „angelegt“ oder „aktualisiert“."""
+    """Kanal in BridgeLink anlegen oder ersetzen und bereitstellen. Liefert „angelegt“ oder „aktualisiert“.
+
+    Ist der Data Pruner dort aus, wird eine Warnung an kanal.hinweise angehängt (sie läuft ins Leere, wenn man sie übersieht)."""
     if not (cfg.get("bridgelink") or {}).get("api"):
         raise ApiError(409, "BridgeLink ist nicht eingerichtet (bridgelink.api, bridgelink.benutzer und das Passwort aus bridgelink.passwort_env).")
     try:
-        return bl.BridgeLink(cfg.get("bridgelink") or {}).install(kanal.id, kanal.xml)
+        server = bl.BridgeLink(cfg.get("bridgelink") or {})
+        was = server.install(kanal.id, kanal.xml)
+        warnung = server.pruner_hinweis()
     except bl.BridgeLinkError as exc:
         raise ApiError(502, str(exc)) from exc
+    if warnung:
+        kanal.hinweise.append(warnung)
+    return was

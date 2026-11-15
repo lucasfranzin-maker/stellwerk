@@ -88,10 +88,58 @@ def _filter(name: str, script: str) -> str:
             f'<script>{escape(script)}</script></com.mirth.connect.plugins.javascriptrule.JavaScriptRule></elements></filter>')
 
 
-def _connector(meta_id: int, name: str, props: str, transport: str, filt: str) -> str:
+def _connector(meta_id: int, name: str, props: str, transport: str, filt: str, antwort_skript: str = "") -> str:
+    antwort = _raw("responseTransformer")
+    if antwort_skript:
+        antwort = antwort.replace("<elements/>", '<elements><com.mirth.connect.plugins.javascriptstep.JavaScriptStep version="{v}">'
+                                  '<name>Dauerhafte Ablehnung erkennen</name><sequenceNumber>0</sequenceNumber><enabled>true</enabled><script>'
+                                  + escape(antwort_skript) + '</script></com.mirth.connect.plugins.javascriptstep.JavaScriptStep></elements>')
     return (f'<connector version="{{v}}"><metaDataId>{meta_id}</metaDataId><name>{escape(name)}</name>{props}'
-            f'{_raw("transformer")}{_raw("responseTransformer")}{filt}<transportName>{transport}</transportName>'
+            f'{_raw("transformer")}{antwort}{filt}<transportName>{transport}</transportName>'
             '<mode>DESTINATION</mode><enabled>true</enabled><waitForPrevious>true</waitForPrevious></connector>')
+
+
+# HTTP-Antworten, bei denen das CDR das Bundle selbst ablehnt. Eine Wiederholung ändert daran nichts. Alles andere (401, 403,
+# 404, 408, 429, 5xx, kein Netz) liegt an Einrichtung oder Ausfall und wird mit der Warteschlange wiederholt.
+ABLEHNUNG_CODES = (400, 413, 415, 422)
+
+_ABLEHNUNG = """\
+var CODES = %s, ORDNER = %s;
+var code = Number(connectorMap.get('responseStatusCode') || 0);
+if (CODES.indexOf(code) >= 0) {
+  responseStatus = ERROR;
+  var id = String(connectorMessage.getMessageId());
+  var bundle = channelMap.get('stellwerkBundle');
+  if (bundle === null || bundle === undefined) { bundle = String(connectorMessage.getEncodedData()); }
+  var text = 'Das CDR hat das Bundle mit HTTP ' + code + ' abgelehnt. Eine Wiederholung ändert daran nichts, deshalb wurde es nicht erneut ' +
+             'versucht und die folgenden Bundles werden nicht aufgehalten.\\nAntwort des CDR: in BridgeLink am Dashboard bei Nachricht ' + id +
+             ' (Fehlerprotokoll). Sie wird hier nicht abgelegt, weil sie Angaben aus dem Bundle enthalten kann.\\n' +
+             'Bundle: ' + id + '.json in diesem Ordner. Nach der Korrektur der Quelle oder der Zuordnung erneut zustellen.';
+  var dir = new java.io.File(ORDNER);
+  dir.mkdirs();
+  function schreiben(name, inhalt) {
+    var tmp = new java.io.File(dir, name + '.tmp'), out = new java.io.OutputStreamWriter(new java.io.FileOutputStream(tmp), 'UTF-8');
+    try { out.write(inhalt); } finally { out.close(); }
+    tmp.renameTo(new java.io.File(dir, name));
+  }
+  schreiben(id + '.json', String(bundle));
+  schreiben(id + '.abgelehnt.txt', text);
+  responseStatusMessage = 'Vom CDR abgelehnt (HTTP ' + code + '), Bundle in ' + ORDNER;
+}
+"""
+
+
+def ablehnung_skript(k: dict, ordner: str) -> str:
+    """Antwort-Transformation für das FHIR-Ziel: dauerhaft abgelehnte Bundles aus der Warteschlange nehmen und ablegen.
+
+    k["bei_ablehnung"]: "abweisen" (Vorgabe) oder "warten". Bei "warten" bleibt ein abgelehntes Bundle in der Warteschlange und
+    hält alle folgenden auf, bis jemand eingreift; das erhält die Reihenfolge."""
+    modus = k.get("bei_ablehnung") or "abweisen"
+    if modus not in ("abweisen", "warten"):
+        raise BridgeLinkError(f"bridgelink.kanal.bei_ablehnung kennt nur „abweisen“ und „warten“, nicht „{modus}“.")
+    if modus == "warten":
+        return ""
+    return _ABLEHNUNG % (json.dumps(list(ABLEHNUNG_CODES)), json.dumps(ordner.rstrip("/") + "/abgelehnt"))
 
 
 def fhir_ziel_props(k: dict) -> str:
@@ -215,7 +263,7 @@ def channel_xml(k: dict, listener_user: str, listener_password: str, version: st
     dests = []
     if ziel:
         dests.append(_connector(1, "FHIR-Ziel", fhir_ziel_props(k), "HTTP Sender",
-                                _filter("Freigegebene Bundles", "return $('stellwerkStatus') == 'ok';")))
+                                _filter("Freigegebene Bundles", "return $('stellwerkStatus') == 'ok';"), ablehnung_skript(k, ablage)))
     regel = "return $('stellwerkStatus') != 'ok';" if ziel else "return true;"
     dests.append(_connector(len(dests) + 1, "Prüfablage" if ziel else "Ablage", datei_props(ablage), "File Writer",
                             _filter("Bundles mit Prüfpunkten" if ziel else "Alle Bundles", regel)))
@@ -300,6 +348,28 @@ class BridgeLink:
             self._call("POST", "/channels", xml.encode("utf-8"))
         self._call("POST", f"/channels/{cid}/_deploy?returnErrors=true")
         return "aktualisiert" if vorhanden else "angelegt"
+
+    def pruner_aktiv(self) -> bool | None:
+        """Ist der Data Pruner von BridgeLink eingeschaltet? None: nicht lesbar (gegen 26.9.0 geprüft)."""
+        try:
+            self.login()
+            _, body = self._call("GET", "/extensions/Data%20Pruner/properties")
+            for p in (json.loads(body or b"{}").get("properties") or {}).get("property") or []:
+                if p.get("@name") == "enabled":
+                    return str(p.get("$")).lower() == "true"
+        except (BridgeLinkError, ValueError, AttributeError):
+            pass
+        return None
+
+    def pruner_hinweis(self) -> str:
+        """Hinweistext, wenn die Aufbewahrungsfristen der Kanäle ins Leere laufen. Leer, wenn alles in Ordnung ist."""
+        aktiv = self.pruner_aktiv()
+        if aktiv:
+            return ""
+        was = ("Der Data Pruner von BridgeLink ist ausgeschaltet." if aktiv is False else
+               "Ob der Data Pruner von BridgeLink eingeschaltet ist, ließ sich nicht lesen.")
+        return (f"{was} Die Aufbewahrungsfristen des Kanals greifen erst, wenn er läuft; bis dahin sammeln sich Zeilen und Bundles "
+                "(Patientendaten) im Nachrichtenspeicher. In BridgeLink unter Einstellungen den Data Pruner einschalten.")
 
     def status(self, cid: str) -> dict:
         """Zustand je Verbindung aus dem Dashboard von BridgeLink (gegen 26.9.0 geprüft).

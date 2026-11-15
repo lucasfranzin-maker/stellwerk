@@ -163,9 +163,12 @@ def cmd_schnittstelle(args, cfg) -> int:
         for h in k.hinweise:
             print("Hinweis:", h, file=sys.stderr)
         if args.einrichten:
+            bisher = len(k.hinweise)
             was = schnittstelle.einrichten(k, cfg)
             store.audit("kommandozeile", "schnittstelle.eingerichtet", args.aufgabe, f"{was}, Kanal {k.id}")
             print(f"Kanal „{k.name}“ {was} und bereitgestellt (ID {k.id}).")
+            for h in k.hinweise[bisher:]:                          # was erst beim Einrichten auffiel
+                print("Hinweis:", h, file=sys.stderr)
             return 0
     except ApiError as exc:
         return _fail(str(exc))
@@ -357,6 +360,8 @@ def cmd_bridgelink(args, cfg) -> int:
         if args.aktion == "einrichten":
             was = client.install(cid, xml)
             print(f"Kanal „{k.get('name')}“ {was} und bereitgestellt (BridgeLink {version}, ID {cid}).")
+            if client.pruner_hinweis():
+                print("Hinweis:", client.pruner_hinweis(), file=sys.stderr)
             soll = f":{k.get('port')}{k.get('pfad')}"
             if not str(z.get("ziel") or "").endswith(soll):
                 print(f"Noch einstellen: zustellung.ziel = http(s)://<bridgelink-host>{soll}")
@@ -368,6 +373,8 @@ def cmd_bridgelink(args, cfg) -> int:
               f"abgewiesen {st['abgewiesen']} (ohne Routing-Merkmal).")
         for d in st["ziele"]:
             print(f"  {d['name']}: gesendet {d['gesendet']}, Fehler {d['fehler']}, in Warteschlange {d['warteschlange']}")
+        if client.pruner_hinweis():
+            print("Hinweis:", client.pruner_hinweis(), file=sys.stderr)
         return 2 if st["fehler"] or st["zustand"] != "STARTED" else 0
     except bridgelink.BridgeLinkError as exc:
         return _fail(str(exc))

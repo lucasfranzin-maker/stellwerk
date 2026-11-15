@@ -81,7 +81,17 @@ danach **im Kanal in BridgeLink**. Stellwerk liefert das Kanal-XML nie über die
 **Aufbewahrung.** Der Nachrichtenspeicher von BridgeLink enthält die gelesenen Zeilen und die Bundles, also Patientendaten.
 Der Kanal setzt Fristen (`bridgelink.kanal.inhalt_tage`, Vorgabe 7, und `metadaten_tage`, Vorgabe 30, ohne Archiv). Sie greifen
 erst, wenn der **Data Pruner in BridgeLink eingeschaltet** ist (Einstellungen → Data Pruner); ab Werk ist er aus.
+Stellwerk liest diesen Zustand beim Einrichten (`stellwerk schnittstelle … --einrichten`, `stellwerk bridgelink einrichten|status`,
+Workbench) und warnt, solange er aus ist. Einschalten muss es der Administrator; Stellwerk ändert keine Servereinstellungen.
 Die Prüfablage ist ein Ordner mit Patientendaten und braucht eine eigene Aufräumregel im Betrieb.
+
+**Ablehnung durch das CDR.** Antwortet das CDR mit HTTP 400, 413, 415 oder 422, liegt es am Bundle, und eine Wiederholung
+hilft nicht. Der Kanal setzt die Nachricht dann auf ERROR (sichtbar im Dashboard von BridgeLink, dort steht auch die Antwort
+des CDR), legt das Bundle samt Hinweis in `<pruefablage>/abgelehnt/` und lässt die folgenden Bundles durch. Die Antwort des CDR
+steht nicht in der Datei, weil sie Angaben aus dem Bundle enthalten kann. Alles andere (401, 403, 404, 408, 429, 5xx, kein
+Netz) liegt an Einrichtung oder Ausfall und wird mit der Warteschlange jede Minute wiederholt. Wer die Reihenfolge über alles
+stellt, setzt `bridgelink.kanal.bei_ablehnung: warten`; dann bleibt ein abgelehntes Bundle stehen und hält alle folgenden auf.
+Gilt für den Eingangskanal und für den Kanal je Schnittstelle.
 
 **Änderungen.** Wird die Zuordnung in Stellwerk geändert, den Kanal erneut einrichten. Der Kanal wird ersetzt, der Stand bleibt.
 
@@ -124,7 +134,11 @@ Jedes gelieferte Bundle wurde mit dem verglichen, das die Python-Pipeline aus de
 - BridgeLink vollständig stoppen und neu starten, mit einer Zeile, die in der Quelle während des Stillstands entstand:
   der Kanal läuft von allein wieder an, die neue Zeile kommt einmal an, nichts doppelt (mit leerer Warteschlange getestet)
 - FHIR-Ziel aus: Bundles stehen in der Warteschlange, nach Rückkehr werden sie zugestellt
-- FHIR-Ziel antwortet 422: das Bundle bleibt in der Warteschlange und wird jede Minute neu versucht (siehe Grenzen)
+- FHIR-Ziel antwortet 422: das Bundle geht als ERROR ins Dashboard und mit Hinweis in `abgelehnt/`, die Warteschlange bleibt leer,
+  das nächste Bundle kommt durch (13 Ablehnungen, dann wieder Annahme)
+- FHIR-Ziel aus (503), dann 422 beim Wiederholen: das Bundle wartet zuerst und wird beim Wiederholen abgelegt, Dateiinhalt
+  ist das Bundle; Warteschlange danach leer
+- Data Pruner: Zustand wird gelesen (`enabled: false`), die Warnung erscheint beim Einrichten
 - 2 Zeilen je Lauf bei 13 Zeilen: vollständig, in Reihenfolge, ohne Lücke
 - „alle Zeilen bei jedem Lauf“
 
@@ -139,9 +153,11 @@ LOB-Spalten, mehrere BridgeLink-Knoten, TLS zur Datenbank.
 
 **Schnittstelle je Aufgabe**
 
-- **Ein Bundle, das das CDR dauerhaft ablehnt (HTTP 4xx), blockiert die Warteschlange.** BridgeLink versucht es jede Minute
-  neu, die folgenden warten. Das ist gewollt, weil sonst eine spätere Korrektur eine frühere überholen könnte; sichtbar wird es
-  als wachsende Warteschlange (`stellwerk bridgelink status`, Dashboard). Der Administrator muss die Nachricht prüfen und entfernen.
+- **Abgelehnte Bundles werden nicht erneut zugestellt.** Sie liegen in `abgelehnt/` und im Dashboard (ERROR). Nach der Korrektur
+  der Quelle oder der Zuordnung die Zeile neu lesen (Stand zurücksetzen) oder die Nachricht in BridgeLink erneut verarbeiten.
+  Ein später abgelehntes Bundle kann ein früheres, schon angenommenes nicht überholen, aber ein späteres kann vor einem
+  abgelehnten ankommen. Bei `bei_ablehnung: warten` gilt das Gegenteil: Reihenfolge bleibt, die Warteschlange staut sich.
+  Die Codes 400, 413, 415 und 422 sind fest eingebaut; ein CDR, das Bundleprobleme mit anderen Codes meldet, wird wiederholt.
 - **Abgewiesene Zeilen werden nicht erneut gelesen.** Ergänzt die Quelle später die Patientennummer einer schon gelesenen Zeile,
   kommt sie erst nach „neu lesen“ (Stand zurücksetzen).
 - **Das Kriterium für neue Zeilen muss je Zeile steigen.** Eine Zeile, die später mit einem kleineren oder gleichen Wert
