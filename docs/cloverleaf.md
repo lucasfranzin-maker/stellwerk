@@ -3,6 +3,9 @@
 Nicht an einer echten Instanz getestet. Die drei Wege nutzen nur Dateien, MLLP und HTTP und gelten
 genauso für andere Kommunikationsserver.
 
+Für Messwerte aus einer Datenbank gibt es das Übergabepaket ([uebergabe.md](uebergabe.md)): Abfrage, Zuordnung, Regeln und Testfälle,
+um die Schnittstelle als Thread nachzubauen. Einen fertigen Thread erzeugt Stellwerk nicht.
+
 ## 1. MLLP hinein, Datei heraus
 
 Cloverleaf schickt die Dokumentnachricht (`MDM^T02`, `ORU^R01`) über einen ausgehenden MLLP-Thread an Stellwerk

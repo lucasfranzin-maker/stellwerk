@@ -5,6 +5,7 @@ systeme:
   patient:    # z. B. https://fhir.klinikum-musterstadt.example/sid/patientennummer
   fall:       # z. B. https://fhir.klinikum-musterstadt.example/sid/aufnahmenummer
   dokument:   # z. B. https://fhir.klinikum-musterstadt.example/sid/dokumentnummer
+  auftrag:    # z. B. https://fhir.klinikum-musterstadt.example/sid/laborauftrag  (nur für Messwerte aus dem Feld-Mapping)
 
 # Vorlage, wenn die Quelle keinen Dokumenttyp nennt, und Zuordnung Dokumenttyp -> Vorlage.
 vorlage: entlassbrief
@@ -30,13 +31,40 @@ ocr:
 llm:
   modell: ""                # leer = ohne Modell arbeiten
   url: http://localhost:11434
-  api: ollama               # ollama | openai (llama.cpp, vLLM, LM Studio und andere)
+  api: ollama               # ollama | openai (llama.cpp, vLLM, LM Studio, Gateways, externe Anbieter)
   timeout: 120
-  nur_lokal: true           # Adressen außerhalb des lokalen Netzes werden abgelehnt
-  erlaubte_hosts: []
+  erlaubte_hosts: []        # Hosts, die als "im Haus" gelten (z. B. ein eigenes Gateway in der DMZ)
+  schluessel_env: STELLWERK_LLM_KEY   # Name der Umgebungsvariable mit dem API-Schlüssel; der Schlüssel steht nie in dieser Datei
+  # Externes Modell: Daten verlassen das Haus. Nur mit AV-Vertrag und Freigabe des Datenschutzes einschalten.
+  extern:
+    erlaubt: false
+    daten: metadaten        # metadaten = nur Tabellen- und Spaltennamen | alles = auch Zeilenwerte und Dokumenttext
 
 zustellung:
-  ziel:                     # Ordner (den der Kommunikationsserver abholt) oder http(s)-Adresse
-  bei_pruefen: zurueckhalten   # zurueckhalten | zustellen
+  ziel:                     # Ordner (den der Kommunikationsserver abholt) oder http(s)-Adresse, z. B. der BridgeLink-Kanal:
+                            # http://bridgelink:8095/stellwerk
+  bei_pruefen: zurueckhalten   # zurueckhalten | zustellen (BridgeLink legt solche Bundles in die Prüfablage)
+  benutzer:                 # Basic-Auth für das HTTP-Ziel
+  passwort_env: STELLWERK_ZIEL_PASSWORT
+  ca:                       # eigene CA-Datei für https, falls nötig
+
+# BridgeLink: Stellwerk legt den Eingangskanal an und liest seinen Zustand (stellwerk bridgelink ...).
+bridgelink:
+  api:                      # z. B. https://bridgelink:8443/api
+  benutzer:                 # BridgeLink-Konto mit Recht, Kanäle anzulegen und bereitzustellen
+  passwort_env: STELLWERK_BRIDGELINK_PASSWORT
+  ca:                       # CA des BridgeLink-Zertifikats (Standard ist selbstsigniert)
+  kanal:
+    name: Stellwerk FHIR-Eingang
+    port: 8095
+    pfad: /stellwerk
+    fhir_ziel:              # z. B. https://cdr.haus/fhir ; leer = alles in die Ablage
+    fhir_auth: keine        # keine | basic | bearer
+    fhir_benutzer:
+    fhir_passwort_env:
+    fhir_token_env:
+    pruefablage:            # Ordner im BridgeLink-Server, Vorgabe /opt/bridgelink/appdata/stellwerk/pruefen
+    speicherung: PRODUCTION # Nachrichtenspeicherung in BridgeLink
+    verschluesseln: true    # Nachrichteninhalte in BridgeLink verschlüsselt speichern
 
 ausgabe: out

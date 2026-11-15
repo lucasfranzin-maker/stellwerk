@@ -13,3 +13,7 @@ stellwerk.yaml
 *.local.yaml
 
 !beispiele/stellwerk.yaml
+arbeitsbereich/
+
+# Übergabepakete können Patientendaten enthalten.
+uebergabe-*.zip

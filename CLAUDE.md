@@ -79,12 +79,40 @@ The AI assists interface developers in analyzing unknown SQL schemas or HL7 feed
 
 ---
 
+## 7a. Visual system (2026-11-14, supersedes Sections 2–5 and the Emergent mockup where they conflict)
+The owner rejected the generic "AI-made SaaS" look. Do not drift back to it. Banned: tinted pill badges, rounded shadow cards on a grey canvas, navy sidebar with teal/indigo accents, Inter/Geist, all-caps eyebrow labels, strings joined with middle dots, decorative numbering.
+
+- **Type:** Barlow Semi Condensed for the interface (DIN-like signage character, dense), IBM Plex Mono only for real data (paths, codes, values, payloads). Both are bundled under `src/stellwerk/web/fonts/` (OFL) and served locally. No web fonts from the network.
+- **Surfaces:** three tones instead of cards: filing (steel `#E2E5E8`), source (`#EEF0F2`), work surface (white), output (dark `#17191C`). No panel shadows, no panel radius; controls have 3px radius. A 2px black rule under the header.
+- **Colour is signal only:** green `#00875A`, yellow `#E5A800`, red `#D4002A`, blue `#0057D9` (selection, proposals). Text is black. Primary action is a black button.
+- **State = lamp + word:** a 9px square in the signal colour followed by a plain word (`zugeordnet`, `Zu prüfen`). Proposals have a hollow blue lamp.
+- **Signature element:** every mapping row is a route from source to target: solid line with arrow = set, dashed blue = proposal, yellow stub with buffer stop = open, short grey stub = left out. Proposal rows carry a fine diagonal hatch, never a colour fill.
+- **Copy:** sentence case, plain German, no jargon for its own sake.
+- Tokens are CSS custom properties at the top of `src/stellwerk/web/index.html`.
+- The workbench is **one HTML file without a build step**, served by the Python service. No CDN, no Node: it must run in an air-gapped hospital network. Icons are inline SVG paths.
+- Layout: explorer tree (user-defined folders and tasks) | source | mapping | FHIR output. Model proposals appear inline in the mapping pane with Accept/Reject, never as chat.
+- Backlog: pipeline designer.
+
+## 7b. Architecture (decided 2026-11-14)
+- **Built:** FastAPI app in `app.py` (`create_app(cfg)`), SQLAlchemy 2 models and `Store` in `db.py`, Alembic migrations in `stellwerk/migrations` (applied on start; add a new revision for every schema change, never edit `0001`). SQLite on-premise, PostgreSQL in the cloud. Dockerfile and `compose.yaml`. Operational docs: `docs/betrieb.md`.
+- The run log (`lauf`) and audit log never contain patient data or file names: only channel, system name, status, durations, finding codes.
+- Database addresses with a literal password are refused; passwords come from `${STELLWERK_DB_*}` placeholders.
+- Frontend becomes a **React** app. Built assets are committed/packaged so a hospital install needs no Node and no network. This supersedes "one HTML file without a build step" once the migration lands; the visual system in 7a stays.
+- Login via **OIDC / Active Directory** with roles; no local password store.
+- LLM access may go through a gateway that shields clinic-to-cloud traffic; see `docs/anforderungen.md`.
+- Routing via BridgeLink: `bridgelink.py` generates the channel XML (tested against BridgeLink 26.9.0) and talks to its REST API; routing headers `X-Stellwerk-*` never carry patient data. See `docs/bridgelink.md`.
+- **Stellwerk is the design tool, the communication server is the runtime** (owner's picture, 2026-11-14): discovery proposes SELECTs (`discovery.propose_queries`, joins only towards master data, always LEFT JOIN, guessed joins marked), the admin takes the result over as a handover package (`uebergabe.py`, `docs/uebergabe.md`). Documents (PDF/OCR, sections) stay with Stellwerk at runtime.
+- The handover package contains no rows or single values from the source unless explicitly requested (`mit_daten`); every package is written to the audit log. The rules in its `LIESMICH.md` must describe `fieldmap.build` exactly: `tests/nachbau.js` rebuilds the bundles from the package alone, so change rules and `build` together.
+- **BridgeLink channel per interface** (`schnittstelle.py`, `kanal_bauen.js`, `docs/bridgelink.md`): the generated channel builds bundles in ES5 (Rhino) with the same file the tests run under Node. `kanal_bauen.js` must equal `fieldmap.build`; `tests/test_schnittstelle.py` runs every package test case through it, so change rules, `build`, `nachbau.js` and `kanal_bauen.js` together. Tested against the real BridgeLink 26.9.0 with SQLite and PostgreSQL, not with MSSQL/Oracle. The channel XML contains the DB password: the HTTP API only checks and installs, it never returns the XML; the CLI writes it with mode 0600. The channel sets message retention (`inhalt_tage`, `metadaten_tage`) because BridgeLink's message store holds patient data; the server-wide Data Pruner is off by default and must be enabled by the admin. No standalone channel for document interfaces until the service has authentication.
+- Status and order of work: `docs/anforderungen.md`.
+
 ## 8. Engineering Principles (Pipeline)
+- **Never convert clinical values:** value and unit go into the bundle exactly as delivered (only number notation changes: `1,10` → `1.10`, trailing zeros kept via `fieldmap.dump_json`). Ambiguity (mixed units, `<0,6`, unknown codes) is reported, never resolved by the tool. Mapping proposals are never applied without an explicit accept.
 - **Extractive only:** Text in the FHIR document is always verbatim from the source. The local LLM returns `index -> section key`, never text.
 - **Nothing is dropped silently:** every source line ends up in a section, in the catch-all section, or in a finding that lists it. `sectionize` verifies the count.
 - **Repair only what is lossless:** encoding repairs must round-trip unambiguously; everything else is reported and left unchanged. No NFKC (`m²`, `µg` must survive).
 - **Findings are actionable:** each `Finding` has where, what, and what to do. Severity `pruefen` is reserved for things a human must look at; avoid alert fatigue.
-- **LLM stays local:** `llm.py` refuses non-local hosts, ignores system proxies and redirects. LLM-assigned content is always `pruefen`.
+- **LLM data policy:** local models may see everything. An external model (API key from the env var named in `llm.schluessel_env`, https only) is refused unless `llm.extern.erlaubt` is set; with `daten: metadaten` it only ever receives table/column names and types, with `daten: alles` also row values and document text (owner's decision, requires a data processing agreement). Check `llm.patientendaten` before sending any value or text. No system proxies, no redirects. Model-assigned content is always `pruefen`.
 - **Synthetic data only** in `beispiele/` and `tests/`. Never commit real patient data, `out/`, or `stellwerk.yaml`.
 - User-facing strings are German; identifiers are English. Runtime dependencies stay minimal (air-gapped hospital installs).
 - Run `python -m pytest` before committing. Regenerate examples with `python beispiele/erzeugen.py`.

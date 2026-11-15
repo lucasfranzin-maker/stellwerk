@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stellwerk</title>
+<style>
+@font-face{font-family:"Barlow SC";font-weight:400;font-display:swap;src:url(/fonts/barlow-semi-condensed-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Barlow SC";font-weight:500;font-display:swap;src:url(/fonts/barlow-semi-condensed-latin-500-normal.woff2) format("woff2")}
+@font-face{font-family:"Barlow SC";font-weight:600;font-display:swap;src:url(/fonts/barlow-semi-condensed-latin-600-normal.woff2) format("woff2")}
+@font-face{font-family:"Plex Mono";font-weight:400;font-display:swap;src:url(/fonts/ibm-plex-mono-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Plex Mono";font-weight:500;font-display:swap;src:url(/fonts/ibm-plex-mono-latin-500-normal.woff2) format("woff2")}
+/* Drei Flächen in drei Tönen: Ablage (Stahl), Arbeitsfläche (Weiß), Ausgabe (dunkel). Farbe nur als Signal. */
+:root{--side:#E2E5E8;--src:#EEF0F2;--work:#FFFFFF;--field:#FFFFFF;--hover:#F3F4F6;--line:#D3D7DC;--rule:#000000;
+--ink:#000000;--mut:#55606B;--dim:#8A949E;--paper:#FFFFFF;
+--gruen:#00875A;--gelb:#E5A800;--gelbtext:#7A5600;--rot:#D4002A;--blau:#0057D9;
+--sans:"Barlow SC","Barlow Semi Condensed","DIN 2014","Bahnschrift","Arial Narrow",system-ui,sans-serif;--mono:"Plex Mono","IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace}
+@media (prefers-color-scheme:dark){:root{--side:#16191C;--src:#1C1F23;--work:#23272C;--field:#16191C;--hover:#2B3036;--line:#3A4047;--rule:#F2F4F6;
+--ink:#F2F4F6;--mut:#A9B2BB;--dim:#727C86;--paper:#16191C;--gruen:#2FBF8A;--gelb:#F2B84B;--gelbtext:#F2B84B;--rot:#FF5C7A;--blau:#6AA5FF}}
+*{box-sizing:border-box}html,body{height:100%}
+body{margin:0;background:var(--work);color:var(--ink);font:15px/1.35 var(--sans)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--blau);outline-offset:1px}
+svg.i{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:square;stroke-linejoin:miter;flex:none}
+#app{display:grid;grid-template-columns:var(--navw,256px) 1fr;height:100%}
+/* Ablage */
+aside{background:var(--side);display:flex;flex-direction:column;min-width:0}
+.brand{display:flex;align-items:center;gap:10px;padding:16px 16px 18px;font-size:23px;font-weight:600;letter-spacing:.01em;line-height:1}
+.brand span{width:26px;height:26px;background:var(--ink);display:grid;place-items:center;color:var(--paper)}
+.navh{display:flex;align-items:center;justify-content:space-between;padding:0 8px 4px 16px;font-weight:600}
+.tree{flex:1;overflow:auto;padding:0 8px 12px}
+.node{display:flex;align-items:center;gap:7px;height:30px;padding:0 6px;cursor:pointer;white-space:nowrap}
+.node:hover{background:rgba(127,127,127,.14)}.node.sel{background:var(--work);box-shadow:inset 3px 0 0 var(--blau);font-weight:600}
+.node .nm{flex:1;overflow:hidden;text-overflow:ellipsis;background:none;border:0;color:inherit;font-weight:inherit;text-align:left;padding:0;height:100%;cursor:pointer}
+.node .chev{transition:transform .1s;color:var(--mut)}.node.open .chev{transform:rotate(90deg)}
+.node .acts{display:none;gap:0}.node:hover .acts,.node:focus-within .acts{display:flex}
+.ib{width:24px;height:24px;display:grid;place-items:center;border:0;background:none;color:var(--mut);cursor:pointer}
+.ib:hover{background:var(--ink);color:var(--paper)}.ib.dang{color:var(--rot)}.ib.dang:hover{background:var(--rot);color:#fff}
+.node input{flex:1;min-width:0;height:24px;border:2px solid var(--blau);background:var(--field);padding:0 6px}
+.kids{margin-left:14px;border-left:1px solid var(--line);padding-left:4px}
+.navf{padding:10px 16px 12px;color:var(--mut);font-size:13px}
+.hint{padding:8px 10px;color:var(--mut)}
+/* Kopf */
+main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;padding:10px 16px;border-bottom:2px solid var(--rule);min-height:60px}
+.crumb{color:var(--mut);font-size:13px}.bar h1{margin:0;font-size:24px;font-weight:600;line-height:1.1}
+.bar .sp{flex:1}.satz{color:var(--mut);max-width:46ch}
+.btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 14px;border:1.5px solid var(--ink);border-radius:3px;background:transparent;font-weight:600;cursor:pointer;text-decoration:none;color:var(--ink);white-space:nowrap}
+.btn:hover{background:var(--ink);color:var(--paper)}.btn:disabled,.btn[aria-disabled=true]{opacity:.35;cursor:default;pointer-events:none}
+.btn.pri{background:var(--ink);color:var(--paper)}.btn.pri:hover{background:var(--blau);border-color:var(--blau);color:#fff}
+.btn.sm{height:26px;padding:0 9px;font-size:14px;border-width:1px}
+/* Zustand als Lampe mit Wort, nie als getönte Pille */
+.tag{display:inline-flex;align-items:center;gap:6px;font-weight:500;white-space:nowrap;--lampe:var(--dim)}
+.tag::before{content:"";width:9px;height:9px;flex:none;background:var(--lampe);outline:1.5px solid var(--lampe);outline-offset:-1.5px}
+.tag.ok{--lampe:var(--gruen)}.tag.pruefen{--lampe:var(--gelb)}.tag.fehler{--lampe:var(--rot)}.tag.info{--lampe:var(--dim)}
+.tag.ki{--lampe:var(--blau)}.tag.ki::before{background:transparent}
+.tag.badge{font-size:17px;font-weight:600;gap:8px}.tag.badge::before{width:13px;height:13px}
+/* Flächen */
+.panes{flex:1;display:grid;grid-template-columns:var(--c1,1fr) 5px var(--c2,1.25fr) 5px var(--c3,1fr);min-height:0}
+.pane{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--work)}
+.pane.src{background:var(--src)}
+.pane.out{--work:#17191C;--field:#0E1012;--hover:#22262B;--line:#33393F;--rule:#F2F4F6;--ink:#F2F4F6;--mut:#A9B2BB;--dim:#6B7580;--paper:#17191C;
+--gruen:#2FBF8A;--gelb:#F2B84B;--gelbtext:#F2B84B;--rot:#FF5C7A;--blau:#6AA5FF;background:var(--work);color:var(--ink)}
+.split{background:var(--src);cursor:col-resize;border:0;padding:0}.split+.pane+.split{background:var(--work)}.split:hover,.split:focus-visible{background:var(--blau)}
+.ph{display:flex;align-items:center;gap:10px;height:42px;padding:0 14px;flex:none}
+.ph h2{margin:0;font-size:17px;font-weight:600}
+.tabs{display:flex;gap:18px;height:100%}.tab{border:0;background:none;padding:0;font-size:17px;font-weight:500;color:var(--mut);cursor:pointer;box-shadow:inset 0 -3px 0 transparent;height:100%}
+.tab:hover{color:var(--ink)}.tab[aria-selected=true]{color:var(--ink);font-weight:600;box-shadow:inset 0 -3px 0 var(--ink)}
+.pb{flex:1;overflow:auto;min-height:0;border-top:1px solid var(--line)}.pad{padding:10px 14px}.mut{color:var(--mut)}.mono{font-family:var(--mono);font-size:12.5px}
+.seg{display:inline-flex;border:1.5px solid var(--ink);border-radius:3px;overflow:hidden}.seg button{border:0;background:transparent;height:24px;padding:0 10px;font-size:14px;font-weight:500;cursor:pointer}
+.seg button:hover{background:var(--hover)}.seg button[aria-pressed=true]{background:var(--ink);color:var(--paper)}
+pre.code{margin:0;font:12.5px/1.55 var(--mono);counter-reset:l;padding:8px 0}
+pre.code span.l{display:block;padding:0 12px 0 50px;position:relative;white-space:pre-wrap;overflow-wrap:anywhere;min-height:1.55em}
+pre.code span.l::before{counter-increment:l;content:counter(l);position:absolute;left:0;width:38px;text-align:right;color:var(--dim);font-variant-numeric:tabular-nums}
+pre.code span.l:hover{background:var(--hover)}
+.k{color:var(--ink)}.s{color:var(--gruen)}.n{color:var(--gelbtext)}.pane.out .s{color:#8FD3B0}
+.seg3{font-weight:500;box-shadow:inset 0 -2px 0 var(--gelb)}
+/* Spaltenliste und Profil */
+.colrow{display:grid;grid-template-columns:10px minmax(0,auto) minmax(0,1fr) auto;gap:9px;align-items:center;width:100%;height:30px;padding:0 14px;border:0;background:none;text-align:left;cursor:pointer}
+.colrow:hover{background:var(--hover)}.colrow.sel{background:var(--work);box-shadow:inset 3px 0 0 var(--blau)}
+.colrow .cn{font:500 12.5px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.colrow .ct{font:12px var(--mono);color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.colrow .cm{font-size:13px;color:var(--mut);font-variant-numeric:tabular-nums;white-space:nowrap}
+.sq{width:9px;height:9px;outline:1.5px solid var(--dim);outline-offset:-1.5px}.sq.ok{background:var(--gruen);outline-color:var(--gruen)}.sq.ki{outline-color:var(--blau)}.sq.pruefen{background:var(--gelb);outline-color:var(--gelb)}.sq.info{background:var(--dim)}
+.profbox{padding:12px 14px 14px;background:var(--work);border-top:2px solid var(--rule);position:sticky;bottom:0}
+dl.prof{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:0}dl.prof dt{color:var(--mut)}dl.prof dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+.chips{display:flex;flex-wrap:wrap;gap:4px 14px}.chip{font:12.5px var(--mono)}.chip i{font-style:normal;color:var(--mut)}
+/* Mapping: jede Zeile ist ein Fahrweg von der Quelle zum Ziel */
+table.map{border-collapse:collapse;width:100%;table-layout:fixed;min-width:640px}
+table.map th{position:sticky;top:0;z-index:1;background:var(--work);text-align:left;height:32px;padding:0 10px;border-bottom:1px solid var(--line);font-weight:500;color:var(--mut);white-space:nowrap}
+table.map th:nth-child(1){width:16%}table.map th:nth-child(2){width:56px}table.map th:nth-child(3){width:25%}table.map th:nth-child(4){width:13%}
+table.map td{padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:middle;overflow:hidden}table.map tr:hover td{background:var(--hover)}
+table.map .col{font:500 12.5px var(--mono);overflow:hidden;text-overflow:ellipsis}table.map .smp{font-size:13px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.map select.in{font:12.5px var(--mono);width:100%;height:28px}table.map input.in{height:28px}
+table.map td.rt{position:relative;padding:0}
+td.rt::before{content:"";position:absolute;left:2px;right:11px;top:50%;margin-top:-1px;border-top:2px solid var(--ink)}
+td.rt::after{content:"";position:absolute;right:2px;top:50%;margin-top:-5px;border-left:9px solid var(--ink);border-top:5px solid transparent;border-bottom:5px solid transparent}
+td.rt.prop::before{border-top-style:dashed;border-color:var(--blau)}td.rt.prop::after{border-left-color:var(--blau)}
+td.rt.open::before{right:50%;border-color:var(--gelb)}td.rt.open::after{right:50%;margin-top:-7px;margin-right:-3px;border:0;width:3px;height:14px;background:var(--gelb)}
+td.rt.off::before{right:62%;border-color:var(--dim)}td.rt.off::after{display:none}
+table.map tr.ai td,.blk.ai .bh{background-image:repeating-linear-gradient(135deg,transparent 0 7px,color-mix(in srgb,var(--blau) 9%,transparent) 7px 8px)}
+table.map tr.why td{color:var(--mut);padding-top:0;white-space:normal;overflow-wrap:anywhere}table.map tr.ai:not(.why) td{border-bottom:0}
+table.map tr.cur td{box-shadow:inset 0 2px 0 var(--blau),inset 0 -2px 0 var(--blau)}
+.status{display:flex;flex-wrap:wrap;gap:4px 22px;align-items:center;min-height:30px;padding:3px 16px;background:var(--side);font-size:14px;color:var(--mut);font-variant-numeric:tabular-nums}
+.status b{font-weight:600;color:var(--ink)}.dot{display:inline-block;width:9px;height:9px;margin-right:6px;background:var(--dim)}.dot.ok{background:var(--gruen)}.dot.pruefen{background:var(--gelb)}.dot.fehler{background:var(--rot)}.dot.ki{background:transparent;outline:1.5px solid var(--blau);outline-offset:-1.5px}
+/* Felder */
+label.f{display:flex;flex-direction:column;gap:3px;font-weight:500;color:var(--mut)}
+.in{height:30px;border:1px solid var(--dim);border-radius:3px;background:var(--field);color:var(--ink);padding:0 8px;font:12.5px var(--mono);min-width:0;width:100%}
+textarea.in{height:104px;padding:6px 8px;resize:vertical}.in:hover{border-color:var(--ink)}.in:disabled{opacity:.55}select.in{font:15px var(--sans)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+/* Textblöcke */
+.blk{border-bottom:1px solid var(--line)}.bh{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:6px 14px;z-index:1;background:var(--work);border-bottom:1px solid var(--line);position:sticky;top:0}
+.bh select{height:28px;max-width:230px;font-weight:600}.bh .orig{font:12.5px var(--mono);color:var(--mut)}
+.ln{display:grid;grid-template-columns:1fr auto;gap:12px;padding:1px 14px;font:12.5px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;min-height:1.5em}
+.ln:hover{background:var(--hover)}.ln.low{box-shadow:inset 4px 0 0 var(--gelb)}.ln .o{font:13px var(--sans);color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums}
+mark{background:var(--gelb);color:#000;padding:0 2px}
+ol.fl{list-style:none;margin:0;padding:0}ol.fl li{padding:10px 14px;border-bottom:1px solid var(--line)}
+ol.fl .wo{font:500 12.5px var(--mono)}.tun{margin-top:5px;padding-left:10px;border-left:3px solid var(--ink)}
+table.t{border-collapse:collapse;width:100%;font:12.5px var(--mono)}table.t th{position:sticky;top:0;background:var(--src);text-align:left;height:30px;padding:0 10px;border-bottom:1px solid var(--line);font-weight:500;white-space:nowrap}
+table.t td{padding:5px 10px;border-bottom:1px solid var(--line);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}table.t tr:hover td{background:var(--hover)}
+.empty{flex:1;display:grid;place-items:center;text-align:left;color:var(--mut);padding:24px}.empty>div{max-width:44ch}.empty b{display:block;color:var(--ink);font-size:28px;font-weight:600;line-height:1.1;margin-bottom:8px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
+/* Ankreuzfeld, Vorschläge für Abfragen */
+.chk{display:flex;align-items:center;gap:8px;margin:0 0 10px;cursor:pointer}.chk input{width:15px;height:15px;margin:0;accent-color:var(--ink);cursor:pointer}
+.vs{padding:10px 14px;border-bottom:1px solid var(--line)}.vs ul{margin:6px 0 0;padding-left:18px;color:var(--mut)}.vs li{margin:2px 0}
+.vs pre{margin:8px 0;padding:8px 10px;background:var(--field);border:1px solid var(--line);font:12px/1.5 var(--mono);max-height:230px;overflow:auto;white-space:pre}
+.toast{position:fixed;right:16px;bottom:44px;max-width:440px;padding:10px 14px;background:var(--ink);color:var(--paper);font-weight:500;box-shadow:0 6px 20px rgba(0,0,0,.25);display:flex;gap:9px;align-items:baseline}
+.toast::before{content:"";width:9px;height:9px;flex:none;background:var(--rot)}.toast.ok::before{background:var(--gruen)}
+@media (max-width:980px){#app{grid-template-columns:1fr;height:auto}aside{max-height:40vh}.panes{grid-template-columns:1fr;grid-auto-rows:minmax(320px,auto)}.split{display:none}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app">
+<aside>
+  <div class="brand"><span aria-hidden="true"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h5l6 10h5"/><path d="M4 17h5l2-3.3"/><path d="M15 7h5"/></svg></span>Stellwerk</div>
+  <div class="navh"><span>Projekte</span><button class="ib" id="addroot" aria-label="Neues Projekt" title="Neues Projekt"></button></div>
+  <nav class="tree" id="tree" aria-label="Projekte"></nav>
+  <div class="navf">Daten bleiben auf diesem Rechner.</div>
+</aside>
+<main id="main"></main>
+</div>
+<script>
+"use strict";
+const ICON = {
+  chev:'<path d="m9 18 6-6-6-6"/>', folder:'<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  file:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>', fplus:'<path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  play:'<polygon points="6 3 20 12 6 21 6 3"/>', down:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+  up:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
+  trash:'<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
+  pen:'<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>', x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>', send:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>'
+};
+const icon = n => { const t = document.createElement('template'); t.innerHTML = `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICON[n]}</svg>`; return t.content.firstChild; };
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === false || v == null) continue;
+    if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (k === 'class') e.className = v; else if (k in e && k !== 'list') e[k] = v; else e.setAttribute(k, v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) e.append(c.nodeType ? c : document.createTextNode(c));
+  return e;
+}
+const S = { tree: {kinder: []}, vorlagen: [], sel: null, task: null, lauf: null, busy: false, edit: null, del: null, tabM: 'zuordnung', tabO: 'json' };
+const uid = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), b => b.toString(36).padStart(2, '0')).join('').slice(0, 12);
+async function api(method, path, body, raw) {
+  const r = await fetch('/api/' + path, { method, body: raw ? body : body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({ fehler: 'Unerwartete Antwort des Dienstes.' }));
+  if (!r.ok) throw new Error(j.fehler || 'Fehler ' + r.status);
+  return j;
+}
+function toast(msg, cls) { document.querySelectorAll('.toast').forEach(t => t.remove()); const t = h('div', { class: 'toast ' + (cls || 'fehler'), role: 'status' }, msg); document.body.append(t); setTimeout(() => t.remove(), 6000); }
+
+/* ---------- Explorer ---------- */
+function find(id, list = S.tree.kinder, trail = []) { for (const n of list) { if (n.id === id) return { n, list, trail: [...trail, n] }; if (n.kinder) { const r = find(id, n.kinder, [...trail, n]); if (r) return r; } } return null; }
+async function saveTree() { try { await api('PUT', 'baum', S.tree); } catch (e) { toast(e.message); } }
+function addNode(parent, typ) {
+  const n = { id: uid(), name: typ === 'ordner' ? 'Neuer Ordner' : 'Neue Aufgabe', typ, ...(typ === 'ordner' ? { kinder: [], offen: true } : {}) };
+  (parent ? parent.kinder : S.tree.kinder).push(n); if (parent) parent.offen = true;
+  S.edit = n.id; saveTree(); drawTree();
+}
+function drawTree() {
+  const root = document.getElementById('tree'); root.replaceChildren();
+  if (!S.tree.kinder.length) root.append(h('p', { class: 'hint' }, 'Noch kein Projekt. Mit + ein Projekt anlegen, z. B. „Krankenhaus A“, darunter Ordner und Aufgaben.'));
+  const draw = (list, into) => list.forEach(n => {
+    const isF = n.typ === 'ordner';
+    const row = h('div', { class: 'node' + (S.sel === n.id ? ' sel' : '') + (isF && n.offen ? ' open' : '') });
+    if (isF) { const c = icon('chev'); c.classList.add('chev'); row.append(c); }
+    row.append(icon(isF ? 'folder' : 'file'));
+    if (S.edit === n.id) {
+      const inp = h('input', { value: n.name, 'aria-label': 'Name', onkeydown: e => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.value = n.name; inp.blur(); } },
+        onblur: () => { n.name = inp.value.trim() || n.name; S.edit = null; saveTree(); drawTree(); if (S.sel === n.id) drawMain(); } });
+      row.append(inp); setTimeout(() => { inp.focus(); inp.select(); });
+    } else {
+      row.append(h('button', { class: 'nm', title: n.name, 'aria-expanded': isF ? String(!!n.offen) : null, onclick: () => { if (isF) { n.offen = !n.offen; saveTree(); drawTree(); } else openTask(n.id); } }, n.name));
+      const acts = h('span', { class: 'acts' });
+      const ib = (ic, label, fn, cls) => h('button', { class: 'ib ' + (cls || ''), 'aria-label': label, title: label, onclick: e => { e.stopPropagation(); fn(); } }, icon(ic));
+      if (S.del === n.id) acts.append(ib('check', 'Wirklich löschen', () => { const f = find(n.id); f.list.splice(f.list.indexOf(n), 1); if (S.sel && !find(S.sel)) { S.sel = null; drawMain(); } S.del = null; saveTree(); drawTree(); }, 'dang'), ib('x', 'Abbrechen', () => { S.del = null; drawTree(); }));
+      else { if (isF) acts.append(ib('fplus', 'Ordner darunter anlegen', () => addNode(n, 'ordner')), ib('plus', 'Aufgabe darunter anlegen', () => addNode(n, 'aufgabe')));
+        acts.append(ib('pen', 'Umbenennen', () => { S.edit = n.id; drawTree(); }), ib('trash', 'Löschen', () => { S.del = n.id; drawTree(); })); }
+      row.append(acts);
+    }
+    into.append(row);
+    if (isF && n.offen) { const k = h('div', { class: 'kids' }); draw(n.kinder, k); if (!n.kinder.length) k.append(h('div', { class: 'hint', style: 'padding:4px 8px' }, 'leer')); into.append(k); }
+  });
+  draw(S.tree.kinder, root);
+}
+
+/* ---------- Aufgabe ---------- */
+async function openTask(id) { S.sel = id; S.lauf = null; S.task = null; S.tabM = 'zuordnung'; S.tabO = 'json'; S.erschl = null; S.paketDaten = false; S.kanalStand = null; drawTree(); drawMain(); try { S.task = await api('GET', 'aufgabe/' + id); drawMain(); if (S.task.quelle || (S.task.art === 'sql' && S.task.abfrage)) run(); } catch (e) { toast(e.message); } }
+async function saveTask() { const { quelle, ...t } = S.task; S.task = await api('PUT', 'aufgabe/' + S.sel, t); }
+async function run() {
+  if (S.busy) return; S.busy = true; drawMain();
+  try { await saveTask(); S.lauf = await api('POST', 'aufgabe/' + S.sel + '/lauf'); }
+  catch (e) { S.lauf = null; toast(e.message); }
+  S.busy = false; drawMain();
+}
+async function paket() {
+  const daten = !!S.paketDaten;
+  try { await saveTask();
+    const r = await fetch('/api/aufgabe/' + S.sel + '/uebergabe' + (daten ? '?daten=1' : ''));
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.fehler || 'Fehler ' + r.status); }
+    const name = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || 'uebergabe.zip';
+    const a = h('a', { href: URL.createObjectURL(await r.blob()), download: name }); document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    toast('Übergabepaket geladen: ' + name + (daten ? '. Es enthält Patientendaten.' : ''), 'ok');
+  } catch (e) { toast(e.message); }
+}
+async function vorschlagen(db) {
+  if (!db.trim()) { toast('Erst die Datenbankadresse eintragen.'); return; }
+  S.task.db = db; S.erschl = { laeuft: true }; drawMain();
+  try { await saveTask(); const r = await api('POST', 'erschliessen', { db }); S.erschl = { abfragen: r.abfragen, z: r.zusammenfassung }; }
+  catch (e) { S.erschl = null; toast(e.message); }
+  drawMain();
+}
+async function upload(file) { try { S.task = await api('POST', 'aufgabe/' + S.sel + '/quelle?name=' + encodeURIComponent(file.name), file, true); run(); } catch (e) { toast(e.message); } }
+function setAlias(heading, key) { S.task.aliase = { ...S.task.aliase, [heading]: key }; run(); }
+
+function jsonHtml(obj) {
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const val = v => { const m = /^(.*?)(,?)$/.exec(v), x = m[1], c = x.startsWith('"') ? 's' : /^(-?\d|true|false|null)/.test(x) ? 'n' : ''; return (c ? `<span class="${c}">${x}</span>` : x) + m[2]; };
+  return (typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2)).split('\n').map(l => { const e = esc(l), m = /^(\s*)("(?:[^"\\]|\\.)*")(: )(.*)$/.exec(e);
+    return '<span class="l">' + (m ? m[1] + `<span class="k">${m[2]}</span>` + m[3] + val(m[4]) : e.replace(/^(\s*)(.*)$/, (x, sp, r) => sp + val(r))) + '</span>'; }).join('');
+}
+function tabs(cur, items, set) { return h('div', { class: 'tabs', role: 'tablist' }, items.map(([k, label]) => h('button', { class: 'tab', role: 'tab', 'aria-selected': String(cur === k), onclick: () => { set(k); drawMain(); } }, label))); }
+
+function paneSource() {
+  const t = S.task, L = S.lauf, body = h('div', { class: 'pb' });
+  const seg = h('span', { class: 'seg', role: 'group', 'aria-label': 'Art der Quelle' }, [['datei', 'Datei'], ['sql', 'SQL']].map(([k, l]) => h('button', { 'aria-pressed': String(t.art === k), onclick: () => { t.art = k; S.lauf = null; saveTask().then(drawMain); } }, l)));
+  if (t.art === 'datei') {
+    const inp = h('input', { type: 'file', hidden: true, onchange: () => inp.files[0] && upload(inp.files[0]) });
+    body.append(h('div', { class: 'pad row', style: 'border-bottom:1px solid var(--line)' }, inp, h('button', { class: 'btn sm', onclick: () => inp.click() }, icon('up'), t.quelle ? 'Andere Datei' : 'Datei wählen'),
+      h('span', { class: 'mono mut' }, t.quelle || 'HL7 v2, PDF oder Text')));
+    if (L && L.roh.text != null) { const pre = h('pre', { class: 'code' }); L.roh.text.split('\n').forEach(l => { const s = h('span', { class: 'l' }); const m = /^([A-Z][A-Z0-9]{2})(\|.*)$/.exec(l); if (L.art === 'hl7' && m) s.append(h('span', { class: 'seg3' }, m[1]), m[2]); else s.textContent = l; pre.append(s); }); body.append(pre); }
+    else if (!t.quelle) body.append(h('div', { class: 'pad mut' }, 'Quelldatei hochladen. Sie wird im Arbeitsbereich auf diesem Rechner gespeichert.'));
+  } else {
+    const db = h('input', { class: 'in', value: t.db, placeholder: 'sqlite:///pfad/kis.db oder oracle+oracledb://nutzer:${STELLWERK_DB_KIS}@host/…', title: 'Passwörter nie direkt eintragen: Platzhalter ${STELLWERK_DB_…} verwenden und den Wert als Umgebungsvariable des Dienstes setzen.', onchange: () => { t.db = db.value; } });
+    const q = h('textarea', { class: 'in', value: t.abfrage, placeholder: 'SELECT DOKNR, PATNR, FALLNR, DIAGNOSEN, ... FROM ...', spellcheck: false, onchange: () => { t.abfrage = q.value; } });
+    const ms = h('select', { class: 'in', onchange: () => { t.modus = ms.value; t.dokument = 0; S.lauf = null; run(); } }, [['dokument', 'Dokument: Textspalten → Composition'], ['felder', 'Felder: Spalten → Patient, Observation']].map(([k, l]) => h('option', { value: k, selected: t.modus === k }, l)));
+    const E = S.erschl;
+    body.append(h('div', { class: 'pad', style: 'display:grid;gap:8px;border-bottom:1px solid var(--line)' }, h('label', { class: 'f' }, 'Datenbank', db),
+      h('div', { class: 'row', style: 'align-items:center' }, h('button', { class: 'btn sm', disabled: !!(E && E.laeuft), onclick: () => vorschlagen(db.value) }, icon('search'), E && E.laeuft ? 'Liest das Schema …' : 'Abfragen vorschlagen'),
+        h('span', { class: 'mut', style: 'font-size:13px' }, 'Liest Tabellen und Beziehungen, nur lesend.')),
+      h('label', { class: 'f' }, 'Abfrage (nur SELECT)', q), h('label', { class: 'f' }, 'Ergebnis verarbeiten als', ms)));
+    if (E && E.abfragen) {
+      body.append(h('div', { class: 'vs' }, h('div', { class: 'row', style: 'justify-content:space-between;align-items:center' }, h('b', {}, 'Vorschläge aus dem Schema'),
+          h('button', { class: 'ib', 'aria-label': 'Vorschläge schließen', title: 'Schließen', onclick: () => { S.erschl = null; drawMain(); } }, icon('x'))),
+        h('div', { class: 'mut', style: 'font-variant-numeric:tabular-nums' }, `${E.z.tabellen} Tabellen, ${E.z.spalten} Spalten gelesen, ${E.z.ungeklaert} ungeklärt. ${E.z.beziehungen} Beziehungen, davon ${E.z.vermutet} vermutet.`),
+        E.abfragen.length ? null : h('p', { style: 'margin:6px 0 0' }, 'Keine Tabelle mit Messwerten oder Dokumenten erkannt. Die Abfrage von Hand schreiben.')));
+      E.abfragen.forEach(a => body.append(h('div', { class: 'vs' },
+        h('div', { class: 'row', style: 'justify-content:space-between;align-items:center' }, h('b', {}, a.name), h('span', { class: 'tag ' + (a.pruefen ? 'pruefen' : 'ok') }, a.pruefen ? 'Zu prüfen' : 'Ohne offene Punkte')),
+        h('div', { class: 'mut', style: 'font-variant-numeric:tabular-nums' }, (a.zeilen == null ? '' : a.zeilen + (a.zeilen === 1 ? ' Zeile. ' : ' Zeilen. ')) + (a.verknuepfungen.length ? 'Verknüpft mit ' + a.verknuepfungen.map(v => v.tabelle).join(', ') + '.' : 'Ohne Verknüpfung.')),
+        h('ul', {}, a.hinweise.map(x => h('li', {}, x))), h('pre', { tabIndex: 0 }, a.sql),
+        h('button', { class: 'btn sm', onclick: () => { t.abfrage = a.sql; t.modus = a.modus; t.dokument = 0; S.erschl = null; S.lauf = null; run(); } }, icon('check'), t.abfrage.trim() ? 'Abfrage ersetzen' : 'Abfrage übernehmen'))));
+    }
+    if (L && L.modus === 'felder') schemaPane(body);
+    else if (L && L.roh.spalten) body.append(h('div', { class: 'pad mut' }, `${L.roh.gesamt} Zeilen gelesen` + (L.roh.gesamt > 50 ? ', 50 gezeigt' : '') + '.'),
+      h('table', { class: 't' }, h('thead', {}, h('tr', {}, L.roh.spalten.map(c => h('th', {}, c)))), h('tbody', {}, L.roh.zeilen.map(r => h('tr', {}, r.map(c => h('td', { title: c }, c)))))));
+  }
+  return h('section', { class: 'pane src', 'aria-label': 'Quelle' }, h('div', { class: 'ph' }, h('h2', {}, 'Quelle'), h('span', { style: 'flex:1' }), seg), body);
+}
+
+function schemaPane(body) {
+  const L = S.lauf, sel = L.spalten.find(c => c.name === S.col);
+  const view = S.srcView || 'spalten';
+  body.append(h('div', { class: 'pad row', style: 'align-items:center;border-bottom:1px solid var(--line)' }, h('span', { class: 'seg', role: 'group', 'aria-label': 'Ansicht' }, [['spalten', 'Spalten'], ['zeilen', 'Zeilen']].map(([k, l]) => h('button', { 'aria-pressed': String(view === k), onclick: () => { S.srcView = k; drawMain(); } }, l))),
+    h('span', { class: 'mut mono' }, L.roh.gesamt + ' Zeilen gelesen' + (L.roh.gesamt >= 500 ? ' (Obergrenze)' : ''))));
+  if (view === 'zeilen') { body.append(h('table', { class: 't' }, h('thead', {}, h('tr', {}, L.roh.spalten.map(c => h('th', {}, c)))), h('tbody', {}, L.roh.zeilen.map(r => h('tr', {}, r.map(c => h('td', { title: c }, c))))))); return; }
+  const art = c => c.regel ? (c.regel.ziel === 'ignorieren' ? ['info', 'ausgelassen'] : ['ok', 'zugeordnet']) : c.vorschlag ? ['ki', 'Vorschlag'] : ['pruefen', 'offen'];
+  const ul = h('div', { class: 'cols', role: 'listbox', 'aria-label': 'Spalten der Abfrage' });
+  L.spalten.forEach(c => { const [cls, label] = art(c), p = c.profil;
+    ul.append(h('button', { class: 'colrow' + (S.col === c.name ? ' sel' : ''), role: 'option', 'aria-selected': String(S.col === c.name), onclick: () => { S.col = S.col === c.name ? null : c.name; S.tabM = 'zuordnung'; drawMain(); const r = document.querySelector('tr[data-col="' + CSS.escape(c.name) + '"]'); if (r) r.scrollIntoView({ block: 'center' }); } },
+      h('span', { class: 'sq ' + cls, title: label }), h('span', { class: 'cn' }, c.name), h('span', { class: 'ct' }, c.regel && c.regel.ziel !== 'ignorieren' ? (L.ziele.find(z => z.key === c.regel.ziel) || {}).pfad : ''),
+      h('span', { class: 'cm' }, p.leer ? Math.round(100 * p.leer / p.zeilen) + ' % leer' : ''))); });
+  body.append(ul);
+  if (sel) { const p = sel.profil, pct = n => p.zeilen ? (100 * n / p.zeilen).toFixed(1).replace('.', ',') + ' %' : '–', filled = p.zeilen - p.leer;
+    const dl = h('dl', { class: 'prof' }); const row = (k, v) => dl.append(h('dt', {}, k), h('dd', {}, v));
+    row('Leer', p.leer + ' von ' + p.zeilen + ' (' + pct(p.leer) + ')'); row('Verschiedene Werte', String(p.verschieden)); row('Reine Zahlen', filled ? p.zahlen + ' von ' + filled : '–');
+    body.append(h('div', { class: 'profbox' }, h('div', { class: 'row', style: 'justify-content:space-between;align-items:center' }, h('b', {}, 'Spaltenprofil'), h('span', { class: 'tag ' + art(sel)[0] }, art(sel)[1])), h('div', { class: 'mono', style: 'margin:4px 0 8px' }, sel.name), dl,
+      h('div', { class: 'mut', style: 'margin:8px 0 4px;font-size:12px' }, 'Häufigste Werte'), h('div', { class: 'chips' }, p.haeufig.length ? p.haeufig.map(x => h('span', { class: 'chip', title: x.anzahl + '×' }, x.wert, h('i', {}, ' ' + x.anzahl + '×'))) : h('span', { class: 'mut' }, 'keine')),
+      h('p', { class: 'mut', style: 'margin:8px 0 0;font-size:12px' }, 'Gerechnet über die gelesenen Zeilen, nicht über die ganze Tabelle.'))); }
+}
+
+function paneMap() {
+  const t = S.task, L = S.lauf, body = h('div', { class: 'pb' });
+  const nTodo = L ? L.befunde.filter(b => b.stufe !== 'info').length : 0;
+  if (!L) body.append(h('div', { class: 'pad mut' }, S.busy ? 'Wird verarbeitet … Gescannte Seiten brauchen einige Sekunden.' : 'Quelle wählen und ausführen.'));
+  else if (S.tabM !== 'befunde' && L.modus === 'felder') body.append(fieldTable());
+  else if (S.tabM === 'zuordnung') {
+    if (!L.bloecke.length) body.append(h('div', { class: 'pad mut' }, 'Kein Text gelesen. Siehe Befunde.'));
+    L.bloecke.forEach(b => {
+      const key = b.ueberschrift || (['ueberschrift', 'quelle'].includes(b.methode) ? b.titel : '');
+      const sel = h('select', { class: 'in', 'aria-label': 'Zielabschnitt', disabled: !key, title: key ? 'Zielabschnitt ändern. Gilt für diese Überschrift in dieser Aufgabe.' : 'Ohne Überschrift im Original; Zuordnung über die Position.',
+        onchange: () => setAlias(key, sel.value) }, L.vorlage.abschnitte.map(a => h('option', { value: a.key, selected: a.key === b.abschnitt }, a.titel)));
+      const art = b.methode === 'ki' ? 'ki' : ['unscharf', 'rest'].includes(b.methode) ? 'pruefen' : 'ok';
+      const fixed = key && t.aliase[key];
+      const head = h('div', { class: 'bh' }, sel, h('span', { class: 'tag ' + (fixed ? 'info' : art), title: b.methode_text }, fixed ? 'festgelegt' : b.methode === 'ki' ? 'Modell, ' + b.sicherheit : art === 'ok' ? 'sicher' : 'prüfen'),
+        key ? h('span', { class: 'orig' }, '„' + key + '“') : null, h('span', { class: 'mut', style: 'flex:1' }, fixed ? 'in dieser Aufgabe festgelegt' : art === 'ok' ? '' : b.methode_text));
+      if (b.methode === 'ki' && !fixed) head.append(h('button', { class: 'btn sm', onclick: () => setAlias(key, b.abschnitt) }, icon('check'), 'Übernehmen'), h('button', { class: 'btn sm', onclick: () => setAlias(key, L.vorlage.abschnitte.at(-1).key) }, icon('x'), 'Ablehnen'));
+      if (fixed) head.append(h('button', { class: 'btn sm', onclick: () => { const a = { ...t.aliase }; delete a[key]; t.aliase = a; run(); } }, 'Zurücksetzen'));
+      const blk = h('div', { class: 'blk' + (b.methode === 'ki' && !fixed ? ' ai' : '') }, head);
+      b.zeilen.forEach(z => { const low = z.pruefen;
+        const tx = h('span', {}); let rest = z.text; const words = [...new Set(z.unsicher)].filter(w => w.length > 1).sort((a, c) => c.length - a.length);
+        if (words.length) { const re = new RegExp('(' + words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'g'); rest.split(re).forEach((p, i) => tx.append(i % 2 ? h('mark', {}, p) : p)); } else tx.textContent = rest || ' ';
+        blk.append(h('div', { class: 'ln' + (low ? ' low' : '') }, tx, h('span', { class: 'o' }, z.text.trim() ? z.herkunft + (z.ocr != null ? ', ' + Math.round(z.ocr) + ' %' : '') : ''))); });
+      body.append(blk);
+    });
+  } else if (S.tabM === 'kopf') {
+    const F = [['patient_id', 'Patientennummer'], ['encounter_id', 'Fallnummer'], ['doc_id', 'Dokumentnummer'], ['doc_date', 'Dokumentdatum'], ['title', 'Titel'], ['author', 'Verfasser'], ['family', 'Nachname'], ['given', 'Vorname'], ['birth_date', 'Geburtsdatum']];
+    const vs = h('select', { class: 'in', onchange: () => { t.vorlage = vs.value; } }, h('option', { value: '' }, 'Vorgabe (' + L.vorlage.name + ')'), S.vorlagen.map(v => h('option', { value: v, selected: t.vorlage === v }, v)));
+    const grid = h('div', { class: 'grid2' }, h('label', { class: 'f' }, 'Vorlage', vs));
+    if (L.dokumente.length > 1) { const ds = h('select', { class: 'in', onchange: () => { t.dokument = +ds.value; } }, L.dokumente.map((d, i) => h('option', { value: i, selected: i === L.dokument }, d))); grid.append(h('label', { class: 'f' }, 'Dokument', ds)); }
+    F.forEach(([k, label]) => { const i = h('input', { class: 'in', value: t.meta[k] || '', placeholder: L.kopf[k] || 'nicht in der Quelle', onchange: () => { t.meta = { ...t.meta, [k]: i.value }; } }); grid.append(h('label', { class: 'f' }, label, i)); });
+    body.append(h('div', { class: 'pad' }, h('p', { class: 'mut', style: 'margin:0 0 10px' }, 'Grau: Wert aus der Quelle. Ein Eintrag hier überschreibt ihn für diese Aufgabe.'), grid,
+      h('div', { style: 'margin-top:12px' }, h('button', { class: 'btn', onclick: run }, icon('play'), 'Übernehmen und ausführen'))));
+  } else {
+    const ol = h('ol', { class: 'fl' }); const order = { fehler: 0, pruefen: 1, info: 2 }, name = { fehler: 'Fehler', pruefen: 'Prüfen', info: 'Erledigt' };
+    [...L.befunde].sort((a, b) => order[a.stufe] - order[b.stufe]).forEach(b => ol.append(h('li', {}, h('span', { class: 'tag ' + b.stufe }, name[b.stufe]), ' ', h('span', { class: 'wo' }, b.wo), h('div', {}, b.meldung), b.was_tun && b.stufe !== 'info' ? h('div', { class: 'tun' }, h('b', {}, 'Was tun: '), b.was_tun) : null)));
+    body.append(L.befunde.length ? ol : h('div', { class: 'pad mut' }, 'Keine Befunde.'));
+  }
+  return h('section', { class: 'pane', 'aria-label': 'Zuordnung' }, h('div', { class: 'ph' }, tabs(S.tabM, [['zuordnung', L && L.modus === 'felder' ? 'Mapping-Tabelle' : 'Zuordnung'], ...(L && L.modus === 'felder' ? [] : [['kopf', 'Kopfdaten']]), ['befunde', 'Befunde' + (nTodo ? ' (' + nTodo + ')' : '')]], k => S.tabM = k)), body);
+}
+
+function fieldTable() {
+  const t = S.task, L = S.lauf, fd = t.felder, wrap = h('div', {});
+  const setRule = (col, r) => { const regeln = { ...fd.regeln }; if (r) regeln[col] = r; else delete regeln[col]; t.felder = { ...fd, regeln, abgelehnt: fd.abgelehnt.filter(c => c !== col) }; run(); };
+  const pfad = k => (L.ziele.find(z => z.key === k) || {}).pfad || '';
+  const vor = L.spalten.filter(c => c.vorschlag && !c.regel);
+  const st = h('select', { class: 'in', style: 'width:auto', 'aria-label': 'Status der Ergebnisse', onchange: () => { t.felder = { ...fd, status: st.value }; run(); } },
+    [['', 'nicht festgelegt (unknown)'], ['final', 'final'], ['preliminary', 'preliminary'], ['corrected', 'corrected']].map(([k, l]) => h('option', { value: k, selected: L.feldstatus === k }, l)));
+  const zs = h('select', { class: 'in', style: 'width:auto;max-width:260px', 'aria-label': 'Zeile für die Vorschau', onchange: () => { t.dokument = +zs.value; run(); } }, L.dokumente.map((d, i) => h('option', { value: i, selected: i === L.dokument }, d)));
+  wrap.append(h('div', { class: 'pad row', style: 'border-bottom:1px solid var(--line);align-items:center' }, h('label', { class: 'f', style: 'flex-direction:row;align-items:center;gap:6px' }, 'Observation.status', st),
+    h('label', { class: 'f', style: 'flex-direction:row;align-items:center;gap:6px' }, 'Vorschau', zs), h('span', { style: 'flex:1' }),
+    vor.length ? h('button', { class: 'btn sm', onclick: () => { const regeln = { ...fd.regeln }; vor.filter(c => c.vorschlag.quelle === 'name').forEach(c => { const { quelle, begruendung, sicherheit, ...r } = c.vorschlag; regeln[c.name] = r; }); t.felder = { ...fd, regeln }; run(); } }, icon('check'), 'Vorschläge nach Namen übernehmen') : null));
+  const tb = h('tbody', {});
+  L.spalten.forEach((c, i) => {
+    const r = c.regel, v = !r && c.vorschlag, cur = r || v || {};
+    const zsel = h('select', { class: 'in', 'aria-label': 'Ziel für ' + c.name, onchange: () => setRule(c.name, zsel.value ? { ...(cur.ziel === zsel.value ? cur : {}), ziel: zsel.value, quelle: undefined, begruendung: undefined, sicherheit: undefined } : null) },
+      h('option', { value: '' }, '– offen –'), L.ziele.map(z => h('option', { value: z.key, selected: cur.ziel === z.key, title: z.text }, z.key === 'ignorieren' ? 'nicht übernehmen' : z.pfad)));
+    const par = h('div', { class: 'row', style: 'gap:6px;flex-wrap:nowrap' });
+    if (cur.ziel === 'obs.wert') {
+      const lo = h('input', { class: 'in', style: 'width:84px;flex:none', value: cur.loinc || '', placeholder: 'LOINC', 'aria-label': 'LOINC-Code für ' + c.name, disabled: !r, onchange: () => setRule(c.name, { ...r, loinc: lo.value.trim(), anzeige: lo.value.trim() === r.loinc ? r.anzeige : '' }) });
+      const hatEinheit = L.spalten.some(x => (x.regel || {}).ziel === 'obs.einheit' && x.regel.fuer === c.name);
+      par.append(lo); if (r && !hatEinheit) { const eh = h('input', { class: 'in', style: 'min-width:0', value: r.einheit || '', placeholder: 'Einheit fest', 'aria-label': 'Feste Einheit für ' + c.name, onchange: () => setRule(c.name, { ...r, einheit: eh.value.trim() }) }); par.append(eh); }
+    } else if (cur.ziel === 'obs.einheit') {
+      const fs = h('select', { class: 'in', 'aria-label': 'Einheit gehört zu', disabled: !r, onchange: () => setRule(c.name, { ...r, fuer: fs.value }) }, h('option', { value: '' }, 'gehört zu …'), L.spalten.filter(x => ((x.regel || x.vorschlag || {}).ziel === 'obs.wert')).map(x => h('option', { value: x.name, selected: cur.fuer === x.name }, x.name)));
+      par.append(fs);
+    } else par.append(h('span', { class: 'mut' }, '–'));
+    const tag = r ? h('span', { class: 'tag ' + (r.ziel === 'ignorieren' ? 'info' : 'ok') }, r.ziel === 'ignorieren' ? 'ausgelassen' : 'zugeordnet') : v ? h('span', { class: 'tag ki' }, v.quelle === 'modell' ? 'Modell, ' + v.sicherheit : 'Vorschlag') : h('span', { class: 'tag pruefen' }, 'offen');
+    const act = h('div', { class: 'row', style: 'gap:4px;flex-wrap:nowrap;justify-content:flex-end' });
+    if (v) act.append(h('button', { class: 'btn sm pri', onclick: () => { const { quelle, begruendung, sicherheit, ...rule } = v; setRule(c.name, rule); } }, icon('check'), 'Übernehmen'),
+      h('button', { class: 'btn sm', 'aria-label': 'Vorschlag ablehnen', title: 'Vorschlag ablehnen', onclick: () => { t.felder = { ...fd, abgelehnt: [...fd.abgelehnt, c.name] }; run(); } }, icon('x')));
+    else if (r) act.append(h('button', { class: 'btn sm', 'aria-label': 'Zuordnung entfernen', title: 'Zuordnung entfernen', onclick: () => setRule(c.name, null) }, icon('x')));
+    tb.append(h('tr', { class: (v ? 'ai' : '') + (S.col === c.name ? ' cur' : ''), 'data-col': c.name }, h('td', {}, h('div', { class: 'col' }, c.name), h('div', { class: 'smp' }, c.beispiele.join(', ') || 'leer')), h('td', { class: 'rt ' + (r ? (r.ziel === 'ignorieren' ? 'off' : 'set') : v ? 'prop' : 'open'), 'aria-hidden': 'true' }), h('td', {}, zsel), h('td', {}, par), h('td', {}, h('div', { class: 'row', style: 'gap:6px;flex-wrap:nowrap;justify-content:space-between;align-items:center' }, tag, act))));
+    if (v) tb.append(h('tr', { class: 'ai why' }, h('td', { colSpan: 5 }, v.begruendung)));
+    else if (r && r.ziel === 'obs.wert' && r.anzeige) tb.append(h('tr', { class: 'why' }, h('td', { colSpan: 5 }, r.anzeige)));
+  });
+  wrap.append(h('table', { class: 'map' }, h('thead', {}, h('tr', {}, ['Quelle', '', 'Ziel', 'Code, Einheit', 'Stand'].map(x => h('th', {}, x)))), tb));
+  wrap.append(h('p', { class: 'pad mut', style: 'margin:0' }, 'Werte und Einheiten werden unverändert aus der Quelle übernommen. Es wird nichts umgerechnet.'));
+  return wrap;
+}
+
+/* ---------- Schnittstelle in BridgeLink ---------- */
+async function kanalPruefen() {
+  try { await saveTask(); S.kanalStand = await api('GET', 'aufgabe/' + S.sel + '/kanal'); } catch (e) { S.kanalStand = { bereit: false, meldung: e.message, hinweise: [] }; }
+  drawMain();
+}
+async function kanalEinrichten() {
+  S.busy = true; drawMain();
+  try { await saveTask(); const r = await api('POST', 'aufgabe/' + S.sel + '/kanal'); S.kanalStand = { bereit: true, fertig: 'Kanal „' + r.name + '“ ' + r.was + ' und bereitgestellt.', hinweise: r.hinweise }; }
+  catch (e) { S.kanalStand = { bereit: false, meldung: e.message, hinweise: [] }; }
+  S.busy = false; drawMain();
+}
+function kanalBlock(L) {
+  const K = () => S.task.kanal, st = S.kanalStand, Z = S.zustellung || {};
+  const aendern = async (f, v) => { K()[f] = v; S.kanalStand = null; try { await saveTask(); } catch (e) { toast(e.message); } drawMain(); };
+  const feld = (label, el) => h('label', { class: 'f', style: 'display:block;margin:0 0 10px' }, label, el);
+  const spalten = (L.spalten || []).map(c => c.name);
+  const sp = h('select', { class: 'in', disabled: K().vollabfrage, onchange: () => aendern('neu_spalte', sp.value) },
+    h('option', { value: '' }, 'Spalte wählen'), spalten.map(n => h('option', { value: n, selected: n === K().neu_spalte }, n)));
+  const art = h('select', { class: 'in', disabled: K().vollabfrage, onchange: () => aendern('neu_art', art.value) },
+    [['zahl', 'Laufende Nummer'], ['zeit', 'Zeitstempel']].map(([k, l]) => h('option', { value: k, selected: K().neu_art === k }, l)));
+  const voll = h('input', { type: 'checkbox', checked: !!K().vollabfrage, onchange: () => aendern('vollabfrage', voll.checked) });
+  const zahl = (f, min, max) => { const i = h('input', { class: 'in', type: 'number', min, max, value: K()[f], onchange: () => aendern(f, parseInt(i.value, 10) || K()[f]) }); return i; };
+  const start = h('input', { class: 'in', value: K().start, placeholder: 'optional', onchange: () => aendern('start', start.value.trim()) });
+  const hinweise = [['TEXTWERT', 'Wert ist keine reine Zahl (steht als Text im Bundle)'], ['GESCHLECHT', 'Unbekannter Geschlechtscode (wird „unknown“)'], ['DATUM', 'Datum nicht lesbar (wird weggelassen)']];
+  const zust = hinweise.map(([c, l]) => { const cb = h('input', { type: 'checkbox', checked: K().zustellen.includes(c), onchange: () => aendern('zustellen', hinweise.map(x => x[0]).filter(x => (x === c ? cb.checked : K().zustellen.includes(x)))) });
+    return h('label', { class: 'chk', style: 'margin-bottom:6px' }, cb, l); });
+  return h('div', { class: 'pad', style: 'border-top:1px solid var(--line)' }, h('div', { class: 'f' }, 'Schnittstelle in BridgeLink'),
+    h('p', { class: 'mut', style: 'margin:3px 0 10px' }, 'Fertiger Kanal: liest die Abfrage, baut je Zeile das Bundle nach den Regeln der Übergabe und stellt es dem FHIR-Ziel zu. Bundles mit Prüfpunkten und Zeilen ohne Bundle bleiben sichtbar in BridgeLink.'),
+    h('label', { class: 'chk' }, voll, 'Alle Zeilen bei jedem Lauf lesen'),
+    K().vollabfrage ? h('p', { class: 'mut', style: 'margin:-4px 0 10px' }, 'Nur sinnvoll mit zugeordneter Auftragsnummer. Das CDR aktualisiert dann vorhandene Ergebnisse, belastet aber Quelle und CDR bei jedem Lauf.') : null,
+    h('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:0 10px;align-items:end' }, feld('Neue Zeilen erkennen an', sp), feld('Art der Spalte', art)),
+    h('div', { style: 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 10px;align-items:end' }, feld('Intervall in s', zahl('intervall', 5, 86400)), feld('Zeilen je Lauf', zahl('max_zeilen', 1, 100000)), feld('Startwert', start)),
+    h('div', { class: 'f', style: 'margin:4px 0 6px' }, 'Diese Hinweise gehen trotzdem direkt an das FHIR-Ziel'), zust,
+    h('div', { class: 'row', style: 'margin-top:10px' },
+      h('button', { class: 'btn', disabled: S.busy, onclick: kanalPruefen }, 'Prüfen'),
+      h('button', { class: 'btn pri', disabled: S.busy || !Z.bridgelink, title: Z.bridgelink ? '' : 'bridgelink.api ist nicht eingerichtet', onclick: kanalEinrichten }, icon('send'), 'In BridgeLink einrichten')),
+    st && st.fertig ? h('p', { style: 'margin:10px 0 0' }, h('span', { class: 'tag ok' }, st.fertig)) : null,
+    st && !st.bereit ? h('p', { style: 'margin:10px 0 0' }, h('span', { class: 'tag fehler' }, 'Noch nicht möglich'), ' ', st.meldung) : null,
+    st && st.bereit && !st.fertig ? h('p', { style: 'margin:10px 0 0' }, h('span', { class: 'tag ok' }, 'Der Kanal lässt sich bauen')) : null,
+    st && st.bereit ? (st.hinweise || []).map(x => h('p', { class: 'mut', style: 'margin:6px 0 0' }, x)) : null);
+}
+
+function paneOut() {
+  const L = S.lauf, t = S.task, body = h('div', { class: 'pb' });
+  if (!L) body.append(h('div', { class: 'pad mut' }, 'Hier erscheint das FHIR-Bundle.'));
+  else if (S.tabO === 'json') {
+    if (L.bundle) { const pre = h('pre', { class: 'code' }); pre.innerHTML = jsonHtml(L.bundle_text || L.bundle); body.append(pre); }
+    else body.append(h('div', { class: 'pad' }, h('span', { class: 'tag fehler' }, 'Kein Bundle'), h('p', { class: 'mut' }, 'Erst die Fehler unter „Befunde“ beheben.')));
+  } else {
+    const fh = L.befunde.filter(b => b.code.startsWith('FHIR_'));
+    if (L.modus === 'felder') body.append(h('div', { class: 'pad' }, h('span', { class: 'tag ' + (L.bundle ? 'info' : 'fehler') }, L.bundle ? 'Kein FHIR-Profil geprüft' : 'Kein Bundle'),
+      h('p', { class: 'mut' }, 'Bei Messwerten prüft Stellwerk die Zuordnung (siehe Befunde), aber kein FHIR-Profil. Vor dem Einsatz mit dem offiziellen Validator gegen das Profil des Zielsystems prüfen.')));
+    else body.append(h('div', { class: 'pad' }, h('span', { class: 'tag ' + (fh.length || !L.bundle ? 'fehler' : 'ok') }, fh.length || !L.bundle ? 'Profilregeln verletzt oder kein Bundle' : 'Eingebaute Profilregeln erfüllt'),
+      h('p', { class: 'mut' }, 'Geprüft werden die Regeln aus ISiKBerichtBundle und ISiKBerichtSubSysteme, die Stellwerk selbst kennt. Das ersetzt nicht den offiziellen FHIR-Validator.'),
+      fh.map(b => h('p', {}, h('span', { class: 'wo mono' }, b.wo), ': ', b.meldung))));
+    const Z = S.zustellung || {};
+    if (Z.ziel) {
+      const pr = L.status === 'pruefen';
+      body.append(h('div', { class: 'pad', style: 'border-top:1px solid var(--line)' },
+        h('div', { class: 'f' }, 'Zustellziel'), h('div', { class: 'mono', style: 'margin:3px 0 8px;overflow-wrap:anywhere' }, Z.ziel),
+        h('div', { class: 'row' }, h('button', { class: 'btn pri', disabled: !L.bundle || S.busy, onclick: async () => {
+          try { const r = await api('POST', 'aufgabe/' + S.sel + '/senden'); toast(r.bundles + (r.bundles === 1 ? ' Bundle' : ' Bundles') + ' übergeben an ' + r.ziel + (r.status === 'pruefen' ? ' (als „zu prüfen“ markiert)' : ''), 'ok'); }
+          catch (e) { toast(e.message); } } }, icon('send'), 'An Zustellziel senden')),
+        h('p', { class: 'mut' }, pr ? 'Es gibt offene Prüfpunkte. Das Bundle geht als „zu prüfen“ markiert hinaus; ein BridgeLink-Kanal von Stellwerk legt es in die Prüfablage statt es weiterzuleiten.'
+                                    : 'Das Bundle geht als „frei“ markiert hinaus; ein BridgeLink-Kanal von Stellwerk leitet es an das FHIR-Ziel weiter.')));
+    }
+    const o = h('input', { class: 'in', value: t.ablage, placeholder: '/pfad/zum/abholordner', onchange: () => { t.ablage = o.value; saveTask(); } });
+    body.append(h('div', { class: 'pad', style: 'border-top:1px solid var(--line)' }, h('label', { class: 'f' }, 'Abholordner des Kommunikationsservers (Cloverleaf, BridgeLink, Mirth)', o),
+      h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'btn', disabled: !L.bundle, onclick: async () => { try { t.ablage = o.value; await saveTask(); const r = await api('POST', 'aufgabe/' + S.sel + '/ablegen', { ordner: o.value }); toast('Abgelegt: ' + r.datei, 'ok'); } catch (e) { toast(e.message); } } }, icon('send'), 'Bundle ablegen')),
+      L.status === 'pruefen' ? h('p', { class: 'mut' }, 'Hinweis: Es gibt offene Prüfpunkte. Ablegen ist trotzdem möglich und Ihre Entscheidung.') : null));
+    const cb = h('input', { type: 'checkbox', checked: !!S.paketDaten, onchange: () => { S.paketDaten = cb.checked; drawMain(); } }), feld = L.modus === 'felder';
+    body.append(h('div', { class: 'pad', style: 'border-top:1px solid var(--line)' }, h('div', { class: 'f' }, 'Übergabepaket für den Kommunikationsserver'),
+      h('p', { class: 'mut', style: 'margin:3px 0 10px' }, feld ? 'Abfrage, Zuordnung, Regeln und erfundene Testfälle als ZIP. Damit lässt sich die Schnittstelle in Cloverleaf, BridgeLink oder Mirth nachbauen und gegenprüfen.'
+                                                               : 'Aufruf und Vorlage als ZIP. Text lesen und Abschnitte zuordnen bleibt bei Stellwerk; der Kommunikationsserver reicht die Rohdaten durch.'),
+      h('label', { class: 'chk' }, cb, feld ? 'Echte Zeilen als weitere Testfälle beilegen' : 'Quelldatei und Bundle beilegen'),
+      S.paketDaten ? h('p', { style: 'margin:0 0 10px' }, h('span', { class: 'tag pruefen' }, 'Das Paket enthält dann Patientendaten.'), ' Nur dort ablegen und weitergeben, wo das erlaubt ist.') : null,
+      h('div', { class: 'row' }, h('button', { class: 'btn', onclick: paket }, icon('down'), 'Übergabepaket laden'))));
+    if (feld && t.art === 'sql') body.append(kanalBlock(L));
+  }
+  return h('section', { class: 'pane out', 'aria-label': 'FHIR-Ausgabe' }, h('div', { class: 'ph' }, tabs(S.tabO, [['json', 'Bundle.json'], ['val', 'Prüfung und Ablage']], k => S.tabO = k)), body);
+}
+
+function drawMain() {
+  const main = document.getElementById('main'); const keep = [...main.querySelectorAll('.pb')].map(e => e.scrollTop);
+  main.replaceChildren();
+  const f = S.sel && find(S.sel);
+  if (!f || !S.task) { main.append(h('div', { class: 'empty' }, h('div', {}, h('b', {}, f ? 'Lädt …' : 'Aufgabe wählen'), f ? '' : 'Links ein Projekt anlegen, darunter Ordner und Aufgaben. Eine Aufgabe öffnet Quelle, Zuordnung und FHIR-Ausgabe nebeneinander.'))); return; }
+  const L = S.lauf, st = { ok: 'In Ordnung', pruefen: 'Zu prüfen', fehler: 'Fehler' };
+  main.append(h('div', { class: 'bar' }, h('div', {}, h('div', { class: 'crumb' }, f.trail.slice(0, -1).map(n => n.name).join(' / ') || 'Projekte'), h('h1', {}, f.n.name)),
+    L ? h('span', { class: 'tag badge ' + L.status }, st[L.status]) : null, L ? h('span', { class: 'satz' }, L.satz) : null, h('span', { class: 'sp' }),
+    h('a', { class: 'btn', href: '/api/aufgabe/' + S.sel + '/bundle', download: 'bundle.json', 'aria-disabled': String(!(L && L.bundle)) }, icon('down'), 'Bundle laden'),
+    h('button', { class: 'btn pri', disabled: S.busy, onclick: run }, icon('play'), S.busy ? 'Läuft …' : 'Ausführen')));
+  const split = (v, a, b) => { const s = h('button', { class: 'split', 'aria-label': 'Spaltenbreite ändern' }); s.addEventListener('pointerdown', e => { s.setPointerCapture(e.pointerId); const P = s.parentElement, A = s.previousElementSibling, B = s.nextElementSibling, x0 = e.clientX, wa = A.offsetWidth, wb = B.offsetWidth;
+    const mv = ev => { const d = Math.max(-wa + 160, Math.min(wb - 160, ev.clientX - x0)); P.style.setProperty(a, (wa + d) + 'px'); P.style.setProperty(b, (wb - d) + 'px'); };
+    s.addEventListener('pointermove', mv); s.addEventListener('pointerup', () => s.removeEventListener('pointermove', mv), { once: true }); }); return s; };
+  const panes = h('div', { class: 'panes' }, paneSource(), split(0, '--c1', '--c2'), paneMap(), split(1, '--c2', '--c3'), paneOut());
+  if (S.cols) panes.style.cssText = S.cols; else if (L && L.modus === 'felder') panes.style.cssText = '--c1:.75fr;--c2:1.9fr;--c3:.95fr'; new MutationObserver(() => S.cols = panes.style.cssText).observe(panes, { attributes: true, attributeFilter: ['style'] });
+  main.append(panes);
+  if (L && L.modus === 'felder') { const c = k => L.befunde.filter(b => b.stufe === k).length, zu = L.spalten.filter(x => x.regel).length, vo = L.spalten.filter(x => x.vorschlag && !x.regel).length;
+    const it = (cls, n, label) => h('span', {}, h('span', { class: 'dot ' + cls }), h('b', {}, String(n)), ' ' + label);
+    main.append(h('div', { class: 'status', role: 'status' }, h('span', {}, h('b', {}, zu + ' / ' + L.spalten.length), ' Spalten zugeordnet'), it('ki', vo, 'Vorschläge'), it('fehler', c('fehler'), 'Fehler'), it('pruefen', c('pruefen'), 'zu prüfen'), h('span', {}, h('b', {}, String(L.roh.gesamt)), ' Zeilen'), h('span', {}, h('b', {}, String(L.bundles)), ' Bundles'), h('span', { style: 'flex:1' }), h('span', {}, 'Lokales Modell: ' + (L.modell || 'keins')))); }
+  else if (L) { const c = k => L.befunde.filter(b => b.stufe === k).length, ki = L.bloecke.filter(b => b.methode === 'ki').length, z = L.bloecke.reduce((n, b) => n + b.zeilen.filter(x => x.text.trim()).length, 0);
+    const it = (cls, n, label) => h('span', {}, h('span', { class: 'dot ' + cls }), h('b', {}, String(n)), ' ' + label);
+    main.append(h('div', { class: 'status', role: 'status' }, h('span', {}, 'Vorlage ', h('b', {}, L.vorlage.name)), h('span', {}, h('b', {}, String(L.bloecke.length)), ' Blöcke'), h('span', {}, h('b', {}, String(z)), ' Zeilen'),
+      it('fehler', c('fehler'), 'Fehler'), it('pruefen', c('pruefen'), 'zu prüfen'), it('ki', ki, 'Vorschläge'), it('ok', c('info'), 'erledigt'), h('span', { style: 'flex:1' }), h('span', {}, 'Lokales Modell: ' + (L.modell || 'keins')))); }
+  [...main.querySelectorAll('.pb')].forEach((e, i) => e.scrollTop = keep[i] || 0);
+}
+
+document.getElementById('addroot').append(icon('plus'));
+document.getElementById('addroot').onclick = () => addNode(null, 'ordner');
+api('GET', 'zustellung').then(z => { S.zustellung = z; }).catch(() => {});
+api('GET', 'baum').then(t => { S.vorlagen = t.vorlagen; S.tree = { kinder: t.kinder }; drawTree(); drawMain(); }).catch(e => { console.error(e); toast(e.message); });
+</script>
+</body>
+</html>

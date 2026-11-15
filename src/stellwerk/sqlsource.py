@@ -45,6 +45,38 @@ _SUFFIX = re.compile(r"(_?(txt|text|inhalt|memo|lang))$")
 _SCHREIBEND = re.compile(r"\b(insert|update|delete|drop|alter|create|truncate|merge|grant|revoke|exec|execute|call|attach|pragma|replace)\b", re.I)
 
 
+_PLATZHALTER = re.compile(r"\$\{(STELLWERK_DB_[A-Z0-9_]+)\}")
+
+
+def resolve_url(db: str) -> str:
+    """${STELLWERK_DB_...} in der Adresse durch die Umgebungsvariable ersetzen. So steht kein Passwort in Aufgaben oder Dateien."""
+    import os
+
+    at = db.find("@", db.find("://") + 3) if "://" in db else -1
+
+    def sub(m: re.Match) -> str:
+        val = os.environ.get(m.group(1))
+        if val is None:
+            raise SqlError(f"Die Umgebungsvariable {m.group(1)} ist nicht gesetzt.")
+        if 0 <= m.start() < at:                                  # Teil der Anmeldedaten: für die URL kodieren
+            from urllib.parse import quote
+            return quote(val, safe="")
+        return val
+    return _PLATZHALTER.sub(sub, db)
+
+
+def public_url(db: str) -> str:
+    """Adresse ohne Passwort, für Protokoll und als Schlüssel."""
+    m = re.match(r"^([a-z0-9+]+://)([^:/@]+):([^@]*)@(.*)$", db, re.I)
+    if m and not _PLATZHALTER.fullmatch(m.group(3)):
+        return f"{m.group(1)}{m.group(2)}:***@{m.group(4)}"
+    return db
+
+
+def has_password(db: str) -> bool:
+    return public_url(db) != db
+
+
 def check_readonly(query: str) -> None:
     q = re.sub(r"--[^\n]*|/\*.*?\*/", " ", query, flags=re.S).strip().rstrip(";").strip()
     if ";" in q:
@@ -53,8 +85,32 @@ def check_readonly(query: str) -> None:
         raise SqlError("Stellwerk führt nur lesende Abfragen aus (SELECT). Diese Abfrage wurde nicht ausgeführt.")
 
 
+_DRIVERS = {
+    "psycopg": "pip install 'stellwerk[postgres]'",
+    "psycopg2": "pip install psycopg2-binary",
+    "oracledb": "pip install oracledb",
+    "cx_Oracle": "pip install oracledb (Adresse dann mit oracle+oracledb://)",
+    "pyodbc": "pip install pyodbc",
+    "pymssql": "pip install pymssql",
+    "pymysql": "pip install pymysql",
+    "MySQLdb": "pip install mysqlclient",
+    "mariadb": "pip install mariadb",
+}
+
+
+def driver_missing(exc: ImportError) -> str:
+    """SQLAlchemy kennt die Datenbankart, aber das Python-Modul für die Verbindung fehlt. Sagen, was zu installieren ist."""
+    name = (getattr(exc, "name", None) or "").split(".")[0]
+    if not name:
+        return f"Der Treiber für diese Datenbank lässt sich nicht laden: {exc}"
+    how = _DRIVERS.get(name, f"pip install {name}")
+    return (f"Der Datenbanktreiber „{name}“ ist auf dem Stellwerk-Server nicht installiert. "
+            f"Nachinstallieren mit: {how}")
+
+
 def run_query(db: str, query: str, limit: int | None = None) -> tuple[list[str], list[tuple]]:
     check_readonly(query)
+    db = resolve_url(db)
     if db.startswith("sqlite:///"):
         path = Path(db[len("sqlite:///"):])
         if not path.exists():
@@ -79,6 +135,8 @@ def run_query(db: str, query: str, limit: int | None = None) -> tuple[list[str],
             res = con.execute(sqlalchemy.text(query))
             cols = list(res.keys())
             rows = res.fetchmany(limit) if limit else res.fetchall()
+    except ImportError as exc:
+        raise SqlError(driver_missing(exc)) from exc
     except sqlalchemy.exc.SQLAlchemyError as exc:
         raise SqlError(f"Die Datenbank meldet: {str(exc).splitlines()[0]}") from exc
     return cols, [tuple(r) for r in rows]

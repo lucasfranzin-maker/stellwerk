@@ -107,12 +107,15 @@ def crosscheck_patient(doc: SourceDoc) -> list[Finding]:
 
 
 def process(doc: SourceDoc, cfg: dict, vorlage: str | None = None, llm: LocalLLM | None = None,
-            llm_note: str = "", now=None) -> Result:
+            llm_note: str = "", now=None, tpl: Template | None = None) -> Result:
     name = vorlage or (cfg.get("vorlagen_zuordnung") or {}).get(doc.meta.type_hint) or cfg.get("vorlage", "entlassbrief")
-    tpl = load_template(name)
+    tpl = tpl or load_template(name)
     res = Result(doc, tpl, findings=list(doc.findings), llm=llm.label if llm else llm_note)
     if any(f.severity == FEHLER for f in res.findings) and not any(ln.text.strip() for ln in doc.lines):
         return res
+    if llm and not llm.patientendaten:           # externes Modell ohne Freigabe für Patientendaten: kein Dokumenttext
+        res.llm += " – für Dokumenttext nicht freigegeben, nicht benutzt"
+        llm = None
     res.sections, f = sectionize(doc, tpl, llm)
     res.findings += f + crosscheck_patient(doc)
     res.bundle, f = build_bundle(doc, res.sections, tpl, cfg, now=now)
@@ -155,10 +158,10 @@ def deliver(res: Result, cfg: dict, ziel: str | None = None, trotz_pruefung: boo
     fname = _safe(res.doc.meta.doc_id) + ".json"
     try:
         if ziel.startswith(("http://", "https://")):
-            req = urllib.request.Request(ziel, data=payload, method="POST",
-                                         headers={"Content-Type": "application/fhir+json; charset=utf-8"})
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                res.delivery = f"per HTTP an {ziel} übergeben (Antwort {resp.status})"
+            from .bridgelink import routing_headers
+            quelle = res.doc.meta.source_system or res.doc.kind
+            code = send_http(ziel, payload, z, routing_headers(res.bundle, res.status, quelle))
+            res.delivery = f"per HTTP an {ziel} übergeben (Antwort {code})"
         else:
             target = Path(ziel[5:] if ziel.startswith("file:") else ziel)
             target.mkdir(parents=True, exist_ok=True)
@@ -172,6 +175,25 @@ def deliver(res: Result, cfg: dict, ziel: str | None = None, trotz_pruefung: boo
     if not res.delivered:
         res.findings.append(Finding("ZUSTELLUNG", FEHLER, "Zustellung", res.delivery[0].upper() + res.delivery[1:] + ".",
                                     "Ziel prüfen und erneut zustellen. Das Bundle liegt im Ausgabeordner."))
+
+
+def send_http(ziel: str, payload: bytes, z: dict, headers: dict | None = None) -> int:
+    """Bundle per HTTP übergeben, z. B. an einen BridgeLink-Kanal. Anmeldung und CA aus der Zustellungs-Konfiguration."""
+    import ssl
+    h = {"Content-Type": "application/fhir+json; charset=utf-8", **(headers or {})}
+    user = z.get("benutzer") or ""
+    if user:
+        pw = os.environ.get(z.get("passwort_env") or "STELLWERK_ZIEL_PASSWORT", "")
+        if not pw:
+            raise OSError("Für die Zustellung fehlt das Passwort (Umgebungsvariable aus zustellung.passwort_env).")
+        from .bridgelink import basic_auth
+        h["Authorization"] = basic_auth(user, pw)
+    ctx = ssl.create_default_context(cafile=z.get("ca") or None) if ziel.startswith("https://") else None
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=ctx)) if ctx \
+        else urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    req = urllib.request.Request(ziel, data=payload, method="POST", headers=h)
+    with opener.open(req, timeout=int(z.get("timeout") or 30)) as resp:
+        return resp.status
 
 
 def write_outputs(res: Result, outdir: str | os.PathLike) -> Path:

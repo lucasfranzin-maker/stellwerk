@@ -4,22 +4,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stellwerk"
-version = "0.1.0"
-description = "HL7 v2, SQL und PDF robust in FHIR-Compositions (ISiK) überführen, mit lokalem LLM und Prüfbericht"
+version = "0.2.0"
+description = "Schnittstellen ins FHIR-CDR entwerfen: HL7 v2, KIS-Datenbanken und PDF in FHIR überführen, mit Prüfbericht, Übergabepaket und BridgeLink-Kanal"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "PyYAML>=6",
   "pypdf>=4",
+  "fastapi>=0.115",
+  "uvicorn>=0.32",
+  "SQLAlchemy>=2.0",
+  "alembic>=1.13",
 ]
 
 [project.optional-dependencies]
 # Texterkennung für gescannte PDFs. Braucht zusätzlich die Programme
 # tesseract (mit Sprachpaket deu) und poppler (pdftoppm).
 ocr = ["pytesseract>=0.3.10", "pdf2image>=1.16", "Pillow>=10", "numpy>=1.24"]
-# Andere Datenbanken als SQLite (Treiber wie oracledb oder pyodbc kommen dazu).
-sql = ["SQLAlchemy>=2"]
-dev = ["pytest>=8", "reportlab>=4", "fhir.resources>=7.1"]
+# PostgreSQL als Datenbank von Stellwerk (Cloud, größere Installationen).
+postgres = ["psycopg[binary]>=3.1"]
+# Quellsysteme: Treiber je nach Haus dazu (oracledb, pyodbc, psycopg ...). SQLAlchemy ist schon enthalten.
+sql = []
+dev = ["pytest>=8", "reportlab>=4", "fhir.resources>=7.1", "httpx>=0.27"]
 
 [project.scripts]
 stellwerk = "stellwerk.cli:main"
@@ -28,7 +34,7 @@ stellwerk = "stellwerk.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-stellwerk = ["vorlagen/*.yaml", "*.yaml"]
+stellwerk = ["vorlagen/*.yaml", "*.yaml", "*.js", "web/*.html", "web/fonts/*", "migrations/*.py", "migrations/*.mako", "migrations/versions/*.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -99,6 +100,100 @@ def cmd_sql(args, cfg) -> int:
     return _finish(results, args, cfg)
 
 
+def cmd_discover(args, cfg) -> int:
+    from . import discovery
+    try:
+        schema = discovery.crawl(args.db, with_values=not args.ohne_werte)
+    except discovery.DiscoveryError as exc:
+        return _fail(str(exc))
+    llm, _ = make_llm(cfg)
+    res = discovery.analyse(schema, llm=llm)
+    res["abfragen"] = discovery.propose_queries(res)
+    discovery.verify_queries(args.db, res, res["abfragen"])
+    if args.abfragen:
+        print(discovery.render_queries(res["abfragen"]), end="")
+        return 1 if any(a["pruefen"] for a in res["abfragen"]) else 0
+    print(json.dumps(res, ensure_ascii=False, indent=1) if args.json else discovery.render_text(res), end="")
+    return 1 if res["zusammenfassung"]["ungeklaert"] or res["zusammenfassung"]["unsicher"] else 0
+
+
+def cmd_uebergabe(args, cfg) -> int:
+    from . import uebergabe
+    from .db import Store
+    from .workbench import ApiError, Workspace
+    store = Store(cfg["datenbank"])
+    store.migrate()
+    ws = Workspace(store)
+    if not args.aufgabe:
+        def zeigen(nodes, pfad):
+            for n in nodes:
+                if n["typ"] == "aufgabe":
+                    print(f"{n['id']:<14} {' / '.join(pfad + [n['name']])}")
+                zeigen(n.get("kinder") or [], pfad + [n["name"]])
+        zeigen(ws.tree()["kinder"], [])
+        return 0
+    try:
+        name, data = uebergabe.build_package(ws, args.aufgabe, cfg, args.mit_daten)
+    except ApiError as exc:
+        return _fail(str(exc))
+    ziel = Path(args.out or name)
+    ziel.write_bytes(data)
+    store.audit("kommandozeile", "uebergabe.erzeugt", args.aufgabe, "mit echten Zeilen (Patientendaten)" if args.mit_daten else "ohne Patientendaten")
+    print(f"Übergabepaket geschrieben: {ziel}" + ("  (enthält Patientendaten)" if args.mit_daten else ""))
+    return 0
+
+
+def cmd_schnittstelle(args, cfg) -> int:
+    from . import schnittstelle
+    from .db import Store
+    from .workbench import ApiError, Workspace
+    store = Store(cfg["datenbank"])
+    store.migrate()
+    ws = Workspace(store)
+    if not args.aufgabe:
+        def zeigen(nodes, pfad):
+            for n in nodes:
+                if n["typ"] == "aufgabe":
+                    print(f"{n['id']:<14} {' / '.join(pfad + [n['name']])}")
+                zeigen(n.get("kinder") or [], pfad + [n["name"]])
+        zeigen(ws.tree()["kinder"], [])
+        return 0
+    try:
+        k = schnittstelle.felder_kanal(ws, args.aufgabe, cfg)
+        for h in k.hinweise:
+            print("Hinweis:", h, file=sys.stderr)
+        if args.einrichten:
+            was = schnittstelle.einrichten(k, cfg)
+            store.audit("kommandozeile", "schnittstelle.eingerichtet", args.aufgabe, f"{was}, Kanal {k.id}")
+            print(f"Kanal „{k.name}“ {was} und bereitgestellt (ID {k.id}).")
+            return 0
+    except ApiError as exc:
+        return _fail(str(exc))
+    ziel = Path(args.out or f"kanal-{k.id[:8]}.xml")
+    fd = os.open(ziel, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)          # enthält das Datenbankpasswort
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(k.xml)
+    store.audit("kommandozeile", "schnittstelle.erzeugt", args.aufgabe, f"Kanal {k.id}")
+    print(f"Kanal geschrieben: {ziel}. In BridgeLink unter „Kanäle“ importieren.")
+    return 0
+
+
+def cmd_vergleichen(args, cfg) -> int:
+    from . import uebergabe
+    try:
+        soll, ist = (uebergabe.load_bundle(Path(p).read_bytes()) for p in (args.erwartet, args.geliefert))
+    except (OSError, ValueError) as exc:
+        return _fail(f"Datei nicht lesbar: {exc}")
+    unterschiede = uebergabe.compare(soll, ist)
+    if not unterschiede:
+        print("Gleich. Reihenfolge der Einträge und fullUrl wurden nicht verglichen.")
+        return 0
+    print(f"{len(unterschiede)} Abweichung(en):")
+    for u in unterschiede:
+        print("  " + u)
+    return 1
+
+
 def cmd_doctor(args, cfg) -> int:
     from .pdftext import ocr_available
     bad = 0
@@ -110,7 +205,7 @@ def cmd_doctor(args, cfg) -> int:
 
     print(f"Stellwerk {__version__}")
     print(f"  ✓ Konfiguration    {cfg.get('_datei') or 'keine stellwerk.yaml gefunden, Vorgaben aktiv'}")
-    unset = [k for k, v in cfg["systeme"].items() if not v]
+    unset = [k for k, v in cfg["systeme"].items() if not v and k != "auftrag"]     # auftrag braucht nur das Feld-Mapping
     line(not unset, "Namensräume", "eingestellt" if not unset else f"fehlen für: {', '.join(unset)}",
          "In stellwerk.yaml unter systeme eintragen. Bis dahin stehen Platzhalter im Bundle und jedes Dokument ist „zu prüfen“.")
     line(True, "Vorlagen", ", ".join(list_templates()))
@@ -141,16 +236,18 @@ def cmd_doctor(args, cfg) -> int:
 
 
 def cmd_serve(args, cfg) -> int:
-    from .server import serve
+    import uvicorn
+
+    from .app import create_app
+    if args.out:
+        cfg["ausgabe"] = args.out
     if args.host not in ("127.0.0.1", "localhost", "::1"):
-        print("ACHTUNG  Der Dienst hat keine Anmeldung und verarbeitet Patientendaten. "
+        print("ACHTUNG  Der Dienst hat noch keine Anmeldung und verarbeitet Patientendaten. "
               "Nur in einem geschützten Netz oder hinter einem Reverse-Proxy mit Anmeldung betreiben.", file=sys.stderr)
-    srv = serve(args.host, args.port, cfg, args.out or cfg["ausgabe"])
-    print(f"Stellwerk läuft auf http://{args.host}:{args.port}  (Seite zum Ausprobieren: /, Schnittstelle: POST /v1/convert)")
-    try:
-        srv.serve_forever()
-    except KeyboardInterrupt:
-        pass
+    app = create_app(cfg)
+    print(f"Stellwerk läuft auf http://{args.host}:{args.port}  (Datenbank: {app.state.store.engine.dialect.name})")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning", access_log=False, proxy_headers=True,
+                forwarded_allow_ips=os.environ.get("STELLWERK_PROXY_IPS", "127.0.0.1"), server_header=False)
     return 0
 
 
@@ -158,9 +255,57 @@ def cmd_mllp(args, cfg) -> int:
     from .mllp import serve
     print(f"Stellwerk empfängt HL7 v2 per MLLP auf {args.host}:{args.port}. Ausgabe nach {args.out or cfg['ausgabe']}.")
     try:
-        asyncio.run(serve(args.host, args.port, cfg, args.out or cfg["ausgabe"], args.vorlage))
+        from .db import Store
+        store = Store(cfg["datenbank"])
+        store.migrate()
+        asyncio.run(serve(args.host, args.port, cfg, args.out or cfg["ausgabe"], args.vorlage, store=store))
     except KeyboardInterrupt:
         pass
+    return 0
+
+
+def cmd_bridgelink(args, cfg) -> int:
+    from . import bridgelink
+    b, z = cfg.get("bridgelink") or {}, cfg.get("zustellung") or {}
+    k = b.get("kanal") or {}
+    try:
+        user = z.get("benutzer") or ""
+        pw = os.environ.get(z.get("passwort_env") or "STELLWERK_ZIEL_PASSWORT", "")
+        if not user:
+            return _fail("zustellung.benutzer fehlt. Der Kanal nimmt nur angemeldete Anfragen an.")
+        if args.aktion == "kanal":
+            print(bridgelink.channel_xml(k, user, pw)[1])
+            return 0
+        client = bridgelink.BridgeLink(b)
+        version = client.version()
+        cid, xml = bridgelink.channel_xml(k, user, pw, version)
+        if args.aktion == "einrichten":
+            was = client.install(cid, xml)
+            print(f"Kanal „{k.get('name')}“ {was} und bereitgestellt (BridgeLink {version}, ID {cid}).")
+            soll = f":{k.get('port')}{k.get('pfad')}"
+            if not str(z.get("ziel") or "").endswith(soll):
+                print(f"Noch einstellen: zustellung.ziel = http(s)://<bridgelink-host>{soll}")
+            if not k.get("fhir_ziel"):
+                print("Hinweis: kanal.fhir_ziel ist leer. Alle Bundles landen in der Ablage im BridgeLink-Server.")
+            return 0
+        st = client.status(cid)
+        print(f"{st['name'] or k.get('name')}: {st['zustand']}. Empfangen {st['empfangen']}, "
+              f"abgewiesen {st['abgewiesen']} (ohne Routing-Merkmal).")
+        for d in st["ziele"]:
+            print(f"  {d['name']}: gesendet {d['gesendet']}, Fehler {d['fehler']}, in Warteschlange {d['warteschlange']}")
+        return 2 if st["fehler"] or st["zustand"] != "STARTED" else 0
+    except bridgelink.BridgeLinkError as exc:
+        return _fail(str(exc))
+
+
+def cmd_migrate(args, cfg) -> int:
+    from .db import Store
+    if args.sql:
+        print(Store.migration_sql(args.sql), end="")
+        return 0
+    st = Store(cfg["datenbank"])
+    st.migrate()
+    print(f"Datenbankschema ist aktuell ({st.engine.dialect.name}).")
     return 0
 
 
@@ -175,7 +320,7 @@ def cmd_init(args, cfg) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="stellwerk", description="HL7 v2, SQL und PDF in FHIR-Compositions überführen.")
+    ap = argparse.ArgumentParser(prog="stellwerk", description="Schnittstellen ins FHIR-CDR entwerfen: HL7 v2, SQL und PDF in FHIR überführen.")
     ap.add_argument("--version", action="version", version=__version__)
     ap.add_argument("--config", help="Pfad zur Konfiguration (Vorgabe: ./stellwerk.yaml)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -209,11 +354,38 @@ def main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("vorlage", help="mitgelieferte Vorlage ausgeben, um sie anzupassen")
     v.add_argument("name", choices=list_templates())
     v.set_defaults(fn=lambda a, c: print((__import__("importlib.resources").resources.files("stellwerk") / "vorlagen" / f"{a.name}.yaml").read_text(encoding="utf-8"), end="") or 0)
+    e = sub.add_parser("discover", help="Datenbankschema lesen, Bedeutung der Felder und Zusammenhänge vorschlagen")
+    e.add_argument("db", help="Datenbankadresse, z. B. sqlite:///kis.db")
+    e.add_argument("--json", action="store_true", help="Ergebnis als JSON ausgeben")
+    e.add_argument("--ohne-werte", action="store_true", help="nur das Schema lesen, keine Zeilen")
+    e.add_argument("--abfragen", action="store_true", help="fertige SELECT-Vorschläge ausgeben (mit Verknüpfung zu Fall und Patient)")
+    e.set_defaults(fn=cmd_discover)
+    ue = sub.add_parser("uebergabe", help="Übergabepaket einer Aufgabe für den Kommunikationsserver schreiben")
+    ue.add_argument("aufgabe", nargs="?", help="Kennung der Aufgabe; ohne Angabe werden die Aufgaben aufgelistet")
+    ue.add_argument("--out", help="Zieldatei (Vorgabe: uebergabe-<Name>.zip)")
+    ue.add_argument("--mit-daten", action="store_true", help="echte Zeilen als zusätzliche Testfälle beilegen (Patientendaten)")
+    ue.set_defaults(fn=cmd_uebergabe)
+    sc = sub.add_parser("schnittstelle", help="Fertigen BridgeLink-Kanal für eine Feld-Mapping-Aufgabe erzeugen oder einrichten")
+    sc.add_argument("aufgabe", nargs="?", help="Kennung der Aufgabe; ohne Angabe werden die Aufgaben aufgelistet")
+    sc.add_argument("--einrichten", action="store_true", help="Kanal in BridgeLink anlegen und bereitstellen (statt eine Datei zu schreiben)")
+    sc.add_argument("--out", help="Zieldatei für das Kanal-XML (Vorgabe: kanal-<Kennung>.xml, nur für den Besitzer lesbar)")
+    sc.set_defaults(fn=cmd_schnittstelle)
+    vg = sub.add_parser("vergleichen", help="geliefertes Bundle mit dem erwarteten aus einem Übergabepaket vergleichen")
+    vg.add_argument("erwartet", help="erwartet.json aus dem Paket")
+    vg.add_argument("geliefert", help="Bundle, das der Kommunikationsserver erzeugt hat")
+    vg.set_defaults(fn=cmd_vergleichen)
     d = sub.add_parser("doctor", help="Einrichtung prüfen: Texterkennung, lokales Modell, Konfiguration")
     d.set_defaults(fn=cmd_doctor)
+    bl = sub.add_parser("bridgelink", help="BridgeLink-Kanal ausgeben, einrichten oder prüfen")
+    bl.add_argument("aktion", choices=["kanal", "einrichten", "status"],
+                    help="kanal: Kanal-XML ausgeben | einrichten: anlegen und bereitstellen | status: Zustand und Zähler")
+    bl.set_defaults(fn=cmd_bridgelink)
+    mg = sub.add_parser("migrate", help="Datenbankschema anlegen oder auf den neuesten Stand bringen")
+    mg.add_argument("--sql", metavar="DIALEKT", choices=["postgresql", "sqlite"], help="nur das SQL ausgeben, z. B. für die Datenbankverwaltung")
+    mg.set_defaults(fn=cmd_migrate)
     i = sub.add_parser("init", help="stellwerk.yaml mit kommentierten Vorgaben anlegen")
     i.set_defaults(fn=cmd_init)
-    h = sub.add_parser("serve", help="HTTP-Dienst mit Seite zum Ausprobieren starten")
+    h = sub.add_parser("serve", help="Workbench und HTTP-Schnittstelle starten")
     h.add_argument("--host", default="127.0.0.1")
     h.add_argument("--port", type=int, default=8080)
     common(h, False)
@@ -225,10 +397,11 @@ def main(argv: list[str] | None = None) -> int:
     m.set_defaults(fn=cmd_mllp)
 
     args = ap.parse_args(argv)
+    from .sqlsource import SqlError
     try:
         cfg = config.load(args.config)
         return args.fn(args, cfg)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, SqlError) as exc:
         return _fail(str(exc))
 
 

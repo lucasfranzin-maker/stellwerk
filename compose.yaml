@@ -1,0 +1,45 @@
+# Betrieb mit Docker Compose.
+#   Im Haus mit SQLite:      docker compose up -d
+#   Mit PostgreSQL:          docker compose --profile postgres up -d   (und STELLWERK_DATENBANK unten umstellen)
+#
+# Der Dienst hat noch keine Anmeldung. Deshalb ist er nur auf 127.0.0.1 des Hosts erreichbar.
+# Freigabe ins Netz erst mit Anmeldung (OIDC) oder hinter einem Reverse-Proxy mit Anmeldung.
+
+services:
+  stellwerk:
+    image: stellwerk:0.2
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      STELLWERK_CONFIG: /konfig/stellwerk.yaml
+      # STELLWERK_DATENBANK: postgresql+psycopg://stellwerk:${POSTGRES_PASSWORD:?Passwort setzen}@postgres:5432/stellwerk
+      # STELLWERK_LLM_KEY: nur bei externem Modell, besser über ein Secret
+    volumes:
+      - daten:/daten
+      - ./stellwerk.yaml:/konfig/stellwerk.yaml:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  postgres:
+    profiles: [postgres]
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: stellwerk
+      POSTGRES_USER: stellwerk
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Passwort setzen}
+    volumes:
+      - pgdaten:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stellwerk"]
+      interval: 10s
+
+volumes:
+  daten:
+  pgdaten:
