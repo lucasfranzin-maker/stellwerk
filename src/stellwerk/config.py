@@ -26,7 +26,8 @@ DEFAULTS: dict[str, Any] = {
     "bridgelink": {"api": "", "benutzer": "", "passwort_env": "STELLWERK_BRIDGELINK_PASSWORT", "ca": "",
                    "kanal": {"name": "Stellwerk FHIR-Eingang", "host": "0.0.0.0", "port": 8095, "pfad": "/stellwerk",
                              "fhir_ziel": "", "fhir_auth": "keine", "fhir_benutzer": "", "fhir_passwort_env": "",
-                             "fhir_token_env": "", "pruefablage": "", "speicherung": "PRODUCTION", "verschluesseln": True}},
+                             "fhir_token_env": "", "pruefablage": "", "stand_ordner": "", "inhalt_tage": 7, "metadaten_tage": 30, "speicherung": "PRODUCTION",
+                             "verschluesseln": True}},
     "ausgabe": "out",
     "arbeitsbereich": "arbeitsbereich",   # Ordner für die Datenbank (SQLite) und Altbestand aus Version 0.1
     "datenbank": "",                      # leer = sqlite:///<arbeitsbereich>/stellwerk.db

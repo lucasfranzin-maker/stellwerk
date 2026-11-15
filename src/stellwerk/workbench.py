@@ -20,8 +20,37 @@ from .textrepair import decode_bytes
 
 _ID = re.compile(r"^[a-z0-9]{6,32}$")
 _META = ("patient_id", "encounter_id", "doc_id", "doc_date", "author", "title", "family", "given", "birth_date")
+KANAL_VORGABE = {"intervall": 60, "neu_spalte": "", "neu_art": "zahl", "vollabfrage": False, "start": "", "max_zeilen": 5000,
+                 "zustellen": [], "jdbc_url": ""}
 VORGABE = {"art": "datei", "vorlage": "", "meta": {}, "aliase": {}, "db": "", "abfrage": "", "dokument": 0, "ablage": "",
-           "modus": "dokument", "felder": {"regeln": {}, "abgelehnt": [], "status": ""}}
+           "modus": "dokument", "felder": {"regeln": {}, "abgelehnt": [], "status": ""}, "kanal": KANAL_VORGABE}
+
+
+def clean_kanal(k) -> dict:
+    """Einstellungen für den BridgeLink-Kanal prüfen. Wirft ApiError, wenn etwas nicht stimmt."""
+    k = {**KANAL_VORGABE, **(k if isinstance(k, dict) else {})}
+    try:
+        intervall, max_zeilen = int(k["intervall"]), int(k["max_zeilen"])
+    except (TypeError, ValueError) as exc:
+        raise ApiError(400, "Intervall und Zeilen je Lauf müssen ganze Zahlen sein.") from exc
+    if not 5 <= intervall <= 86400:
+        raise ApiError(400, "Das Intervall liegt zwischen 5 Sekunden und einem Tag.")
+    if not 1 <= max_zeilen <= 100000:
+        raise ApiError(400, "Zeilen je Lauf: 1 bis 100000.")
+    spalte = str(k["neu_spalte"] or "").strip()
+    if spalte and not re.match(r"^[A-Za-z_][A-Za-z0-9_ .$-]{0,100}$", spalte):
+        raise ApiError(400, "Der Spaltenname für neue Zeilen enthält unzulässige Zeichen.")
+    if k["neu_art"] not in ("zahl", "zeit"):
+        raise ApiError(400, "Die Art des Kriteriums für neue Zeilen muss zahl oder zeit sein.")
+    start = str(k["start"] or "").strip()
+    if start and not re.match(r"^-?\d+(?:\.\d+)?$|^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$", start):
+        raise ApiError(400, "Der Startwert ist keine Zahl und kein Zeitstempel (JJJJ-MM-TT HH:MM:SS).")
+    jdbc = str(k["jdbc_url"] or "").strip()
+    if jdbc and (not jdbc.startswith("jdbc:") or "password=" in jdbc.lower() or "pwd=" in jdbc.lower()):
+        raise ApiError(400, "Die JDBC-Adresse muss mit jdbc: beginnen und darf kein Passwort enthalten.")
+    return {"intervall": intervall, "neu_spalte": spalte, "neu_art": k["neu_art"], "vollabfrage": bool(k["vollabfrage"]), "start": start,
+            "max_zeilen": max_zeilen, "zustellen": [c for c in dict.fromkeys(k["zustellen"] or []) if c in ("TEXTWERT", "GESCHLECHT", "DATUM")],
+            "jdbc_url": jdbc}
 
 
 class ApiError(Exception):
@@ -83,6 +112,7 @@ class Workspace:
                        for c, r in (fd.get("regeln") or {}).items() if isinstance(r, dict) and r.get("ziel") in keys},
             "abgelehnt": [str(c)[:120] for c in fd.get("abgelehnt") or []],
             "status": str(fd.get("status") or "")}
+        t["kanal"] = clean_kanal(t["kanal"])
         from .sqlsource import has_password
         if has_password(str(t["db"])):
             raise ApiError(400, "Die Datenbankadresse enthält ein Passwort. Bitte als Platzhalter ${STELLWERK_DB_…} angeben "

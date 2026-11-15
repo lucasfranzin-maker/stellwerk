@@ -44,6 +44,7 @@ Rückgabewert: `0` OK, `1` zu prüfen, `2` Fehler.
 - **Abfragen vorschlagen (SQL):** Stellwerk liest das Schema und schlägt fertige `SELECT`-Abfragen vor, bei Bedarf mit Verknüpfung zu Fall und Patient. Vermutete Verknüpfungen sind markiert.
 - **Ausgabe:** Bundle laden oder in den Abholordner des Kommunikationsservers legen.
 - **Übergabepaket:** Abfrage, Zuordnung, Regeln und Testfälle als ZIP für den Administrator von Cloverleaf, BridgeLink oder Mirth. Siehe [docs/uebergabe.md](docs/uebergabe.md).
+- **Schnittstelle in BridgeLink:** Für ein Feld-Mapping aus einer Datenbank erzeugt Stellwerk einen fertigen Kanal, der läuft, ohne dass Stellwerk dabei ist: liest die Abfrage (nur neue Zeilen), baut die Bundles nach den Regeln des Pakets, stellt sie dem FHIR-Ziel zu und legt Bundles mit Prüfpunkten in eine Prüfablage. Siehe [docs/bridgelink.md](docs/bridgelink.md).
 
 Projekte und Quelldateien liegen im Ordner `arbeitsbereich/` auf dem Rechner, auf dem der Dienst läuft.
 Die einfache Upload-Seite gibt es weiter unter `/probieren`.
@@ -140,7 +141,8 @@ und Prüf-Bundles in eine Prüfablage leitet, mit Warteschlange und Wiederholung
 - Das Feld-Mapping kennt eine feste Liste von Zielfeldern (Patient, Fallbezug, Laborwert mit LOINC, Einheit, Zeitpunkt) und erzeugt je Zeile eine Transaktion. Es gibt kein freies Regelwerk, keinen Terminologieserver und keine MII-Profilangabe.
 - Werte werden nie umgerechnet. Nicht-numerische Werte wie `<0,6` stehen als Text im Bundle; gemischte Einheiten werden gemeldet.
 - Die LOINC-Vorschlagsliste ist klein (neun Laborwerte) und nicht gegen eine aktuelle LOINC-Version geprüft.
-- Das Übergabepaket ist neutral: Es erzeugt keinen fertigen Cloverleaf-Thread und keinen BridgeLink-Kanal je Schnittstelle. Die Umsetzung dort ist Handarbeit nach den Regeln im Paket.
+- Das Übergabepaket ist neutral. Für BridgeLink erzeugt Stellwerk daraus den fertigen Kanal (nur Feld-Mapping aus Datenbanken, getestet mit SQLite und PostgreSQL, nicht mit SQL Server und Oracle). Für Cloverleaf und Mirth ist die Umsetzung Handarbeit nach den Regeln im Paket.
+- Für Dokument-Schnittstellen (PDF, Textspalten, HL7) gibt es keinen eigenständigen BridgeLink-Kanal: Das Lesen und Zuordnen bleibt bei Stellwerk, und der Dienst hat noch keine Anmeldung und darf nicht ins Netz.
 - Das Feld-Mapping erwartet je Messgröße eine Spalte. Zeilenweise gespeicherte Laborwerte (eine Zeile je Analyt) muss die Abfrage selbst in Spalten bringen.
 - Für Mirth gibt es keinen eigenen Export; es bekommt dasselbe FHIR-Bundle über Abholordner oder HTTP. BridgeLink 26.9.0 ist mit eigenem Kanal angebunden und getestet; der Kanal-Eingang hat kein TLS (siehe docs/bridgelink.md).
 

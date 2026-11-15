@@ -83,6 +83,8 @@ def test_falscher_patient_faellt_auf(bsp, cfg):
 def test_ohne_patientennummer_kein_bundle(bsp, cfg):
     res = run(bsp / "arztbrief_text.pdf", cfg)[0]
     assert res.status == "fehler" and res.bundle is None and "META_PATIENT" in codes(res)
+    hinweis = next(f.action for f in res.findings if f.code == "META_PATIENT")
+    assert "Reiter „Kopfdaten“" in hinweis and "--patient-id" in hinweis and "spalten.patient_id" not in hinweis   # der Hinweis nennt, was es wirklich gibt
 
 
 def test_sql_cli_und_dateiablage(bsp, tmp_path, monkeypatch, capsys):

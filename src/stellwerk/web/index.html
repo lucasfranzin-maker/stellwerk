@@ -208,7 +208,7 @@ function drawTree() {
 }
 
 /* ---------- Aufgabe ---------- */
-async function openTask(id) { S.sel = id; S.lauf = null; S.task = null; S.tabM = 'zuordnung'; S.tabO = 'json'; S.erschl = null; S.paketDaten = false; drawTree(); drawMain(); try { S.task = await api('GET', 'aufgabe/' + id); drawMain(); if (S.task.quelle || (S.task.art === 'sql' && S.task.abfrage)) run(); } catch (e) { toast(e.message); } }
+async function openTask(id) { S.sel = id; S.lauf = null; S.task = null; S.tabM = 'zuordnung'; S.tabO = 'json'; S.erschl = null; S.paketDaten = false; S.kanalStand = null; drawTree(); drawMain(); try { S.task = await api('GET', 'aufgabe/' + id); drawMain(); if (S.task.quelle || (S.task.art === 'sql' && S.task.abfrage)) run(); } catch (e) { toast(e.message); } }
 async function saveTask() { const { quelle, ...t } = S.task; S.task = await api('PUT', 'aufgabe/' + S.sel, t); }
 async function run() {
   if (S.busy) return; S.busy = true; drawMain();
@@ -380,6 +380,48 @@ function fieldTable() {
   return wrap;
 }
 
+/* ---------- Schnittstelle in BridgeLink ---------- */
+async function kanalPruefen() {
+  try { await saveTask(); S.kanalStand = await api('GET', 'aufgabe/' + S.sel + '/kanal'); } catch (e) { S.kanalStand = { bereit: false, meldung: e.message, hinweise: [] }; }
+  drawMain();
+}
+async function kanalEinrichten() {
+  S.busy = true; drawMain();
+  try { await saveTask(); const r = await api('POST', 'aufgabe/' + S.sel + '/kanal'); S.kanalStand = { bereit: true, fertig: 'Kanal „' + r.name + '“ ' + r.was + ' und bereitgestellt.', hinweise: r.hinweise }; }
+  catch (e) { S.kanalStand = { bereit: false, meldung: e.message, hinweise: [] }; }
+  S.busy = false; drawMain();
+}
+function kanalBlock(L) {
+  const K = () => S.task.kanal, st = S.kanalStand, Z = S.zustellung || {};
+  const aendern = async (f, v) => { K()[f] = v; S.kanalStand = null; try { await saveTask(); } catch (e) { toast(e.message); } drawMain(); };
+  const feld = (label, el) => h('label', { class: 'f', style: 'display:block;margin:0 0 10px' }, label, el);
+  const spalten = (L.spalten || []).map(c => c.name);
+  const sp = h('select', { class: 'in', disabled: K().vollabfrage, onchange: () => aendern('neu_spalte', sp.value) },
+    h('option', { value: '' }, 'Spalte wählen'), spalten.map(n => h('option', { value: n, selected: n === K().neu_spalte }, n)));
+  const art = h('select', { class: 'in', disabled: K().vollabfrage, onchange: () => aendern('neu_art', art.value) },
+    [['zahl', 'Laufende Nummer'], ['zeit', 'Zeitstempel']].map(([k, l]) => h('option', { value: k, selected: K().neu_art === k }, l)));
+  const voll = h('input', { type: 'checkbox', checked: !!K().vollabfrage, onchange: () => aendern('vollabfrage', voll.checked) });
+  const zahl = (f, min, max) => { const i = h('input', { class: 'in', type: 'number', min, max, value: K()[f], onchange: () => aendern(f, parseInt(i.value, 10) || K()[f]) }); return i; };
+  const start = h('input', { class: 'in', value: K().start, placeholder: 'optional', onchange: () => aendern('start', start.value.trim()) });
+  const hinweise = [['TEXTWERT', 'Wert ist keine reine Zahl (steht als Text im Bundle)'], ['GESCHLECHT', 'Unbekannter Geschlechtscode (wird „unknown“)'], ['DATUM', 'Datum nicht lesbar (wird weggelassen)']];
+  const zust = hinweise.map(([c, l]) => { const cb = h('input', { type: 'checkbox', checked: K().zustellen.includes(c), onchange: () => aendern('zustellen', hinweise.map(x => x[0]).filter(x => (x === c ? cb.checked : K().zustellen.includes(x)))) });
+    return h('label', { class: 'chk', style: 'margin-bottom:6px' }, cb, l); });
+  return h('div', { class: 'pad', style: 'border-top:1px solid var(--line)' }, h('div', { class: 'f' }, 'Schnittstelle in BridgeLink'),
+    h('p', { class: 'mut', style: 'margin:3px 0 10px' }, 'Fertiger Kanal: liest die Abfrage, baut je Zeile das Bundle nach den Regeln der Übergabe und stellt es dem FHIR-Ziel zu. Bundles mit Prüfpunkten und Zeilen ohne Bundle bleiben sichtbar in BridgeLink.'),
+    h('label', { class: 'chk' }, voll, 'Alle Zeilen bei jedem Lauf lesen'),
+    K().vollabfrage ? h('p', { class: 'mut', style: 'margin:-4px 0 10px' }, 'Nur sinnvoll mit zugeordneter Auftragsnummer. Das CDR aktualisiert dann vorhandene Ergebnisse, belastet aber Quelle und CDR bei jedem Lauf.') : null,
+    h('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:0 10px;align-items:end' }, feld('Neue Zeilen erkennen an', sp), feld('Art der Spalte', art)),
+    h('div', { style: 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 10px;align-items:end' }, feld('Intervall in s', zahl('intervall', 5, 86400)), feld('Zeilen je Lauf', zahl('max_zeilen', 1, 100000)), feld('Startwert', start)),
+    h('div', { class: 'f', style: 'margin:4px 0 6px' }, 'Diese Hinweise gehen trotzdem direkt an das FHIR-Ziel'), zust,
+    h('div', { class: 'row', style: 'margin-top:10px' },
+      h('button', { class: 'btn', disabled: S.busy, onclick: kanalPruefen }, 'Prüfen'),
+      h('button', { class: 'btn pri', disabled: S.busy || !Z.bridgelink, title: Z.bridgelink ? '' : 'bridgelink.api ist nicht eingerichtet', onclick: kanalEinrichten }, icon('send'), 'In BridgeLink einrichten')),
+    st && st.fertig ? h('p', { style: 'margin:10px 0 0' }, h('span', { class: 'tag ok' }, st.fertig)) : null,
+    st && !st.bereit ? h('p', { style: 'margin:10px 0 0' }, h('span', { class: 'tag fehler' }, 'Noch nicht möglich'), ' ', st.meldung) : null,
+    st && st.bereit && !st.fertig ? h('p', { style: 'margin:10px 0 0' }, h('span', { class: 'tag ok' }, 'Der Kanal lässt sich bauen')) : null,
+    st && st.bereit ? (st.hinweise || []).map(x => h('p', { class: 'mut', style: 'margin:6px 0 0' }, x)) : null);
+}
+
 function paneOut() {
   const L = S.lauf, t = S.task, body = h('div', { class: 'pb' });
   if (!L) body.append(h('div', { class: 'pad mut' }, 'Hier erscheint das FHIR-Bundle.'));
@@ -415,6 +457,7 @@ function paneOut() {
       h('label', { class: 'chk' }, cb, feld ? 'Echte Zeilen als weitere Testfälle beilegen' : 'Quelldatei und Bundle beilegen'),
       S.paketDaten ? h('p', { style: 'margin:0 0 10px' }, h('span', { class: 'tag pruefen' }, 'Das Paket enthält dann Patientendaten.'), ' Nur dort ablegen und weitergeben, wo das erlaubt ist.') : null,
       h('div', { class: 'row' }, h('button', { class: 'btn', onclick: paket }, icon('down'), 'Übergabepaket laden'))));
+    if (feld && t.art === 'sql') body.append(kanalBlock(L));
   }
   return h('section', { class: 'pane out', 'aria-label': 'FHIR-Ausgabe' }, h('div', { class: 'ph' }, tabs(S.tabO, [['json', 'Bundle.json'], ['val', 'Prüfung und Ablage']], k => S.tabO = k)), body);
 }

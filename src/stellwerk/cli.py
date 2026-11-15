@@ -143,6 +143,41 @@ def cmd_uebergabe(args, cfg) -> int:
     return 0
 
 
+def cmd_schnittstelle(args, cfg) -> int:
+    from . import schnittstelle
+    from .db import Store
+    from .workbench import ApiError, Workspace
+    store = Store(cfg["datenbank"])
+    store.migrate()
+    ws = Workspace(store)
+    if not args.aufgabe:
+        def zeigen(nodes, pfad):
+            for n in nodes:
+                if n["typ"] == "aufgabe":
+                    print(f"{n['id']:<14} {' / '.join(pfad + [n['name']])}")
+                zeigen(n.get("kinder") or [], pfad + [n["name"]])
+        zeigen(ws.tree()["kinder"], [])
+        return 0
+    try:
+        k = schnittstelle.felder_kanal(ws, args.aufgabe, cfg)
+        for h in k.hinweise:
+            print("Hinweis:", h, file=sys.stderr)
+        if args.einrichten:
+            was = schnittstelle.einrichten(k, cfg)
+            store.audit("kommandozeile", "schnittstelle.eingerichtet", args.aufgabe, f"{was}, Kanal {k.id}")
+            print(f"Kanal „{k.name}“ {was} und bereitgestellt (ID {k.id}).")
+            return 0
+    except ApiError as exc:
+        return _fail(str(exc))
+    ziel = Path(args.out or f"kanal-{k.id[:8]}.xml")
+    fd = os.open(ziel, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)          # enthält das Datenbankpasswort
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(k.xml)
+    store.audit("kommandozeile", "schnittstelle.erzeugt", args.aufgabe, f"Kanal {k.id}")
+    print(f"Kanal geschrieben: {ziel}. In BridgeLink unter „Kanäle“ importieren.")
+    return 0
+
+
 def cmd_vergleichen(args, cfg) -> int:
     from . import uebergabe
     try:
@@ -330,6 +365,11 @@ def main(argv: list[str] | None = None) -> int:
     ue.add_argument("--out", help="Zieldatei (Vorgabe: uebergabe-<Name>.zip)")
     ue.add_argument("--mit-daten", action="store_true", help="echte Zeilen als zusätzliche Testfälle beilegen (Patientendaten)")
     ue.set_defaults(fn=cmd_uebergabe)
+    sc = sub.add_parser("schnittstelle", help="Fertigen BridgeLink-Kanal für eine Feld-Mapping-Aufgabe erzeugen oder einrichten")
+    sc.add_argument("aufgabe", nargs="?", help="Kennung der Aufgabe; ohne Angabe werden die Aufgaben aufgelistet")
+    sc.add_argument("--einrichten", action="store_true", help="Kanal in BridgeLink anlegen und bereitstellen (statt eine Datei zu schreiben)")
+    sc.add_argument("--out", help="Zieldatei für das Kanal-XML (Vorgabe: kanal-<Kennung>.xml, nur für den Besitzer lesbar)")
+    sc.set_defaults(fn=cmd_schnittstelle)
     vg = sub.add_parser("vergleichen", help="geliefertes Bundle mit dem erwarteten aus einem Übergabepaket vergleichen")
     vg.add_argument("erwartet", help="erwartet.json aus dem Paket")
     vg.add_argument("geliefert", help="Bundle, das der Kommunikationsserver erzeugt hat")

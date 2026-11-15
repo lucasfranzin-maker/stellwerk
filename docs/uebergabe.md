@@ -18,6 +18,8 @@ und baut damit den Thread oder Kanal.
 2. **Vorschlag übernehmen**, Zuordnung der Spalten prüfen und annehmen (wie bisher).
 3. **Übergabepaket laden** unter „Prüfung und Ablage“ oder mit `stellwerk uebergabe <Aufgabe>` (ohne Angabe: Liste der Aufgaben).
 4. Im Kommunikationsserver nachbauen und mit `stellwerk vergleichen` gegen die Testfälle prüfen.
+   **BridgeLink:** Stellwerk erzeugt den fertigen Kanal selbst (`stellwerk schnittstelle`, siehe [bridgelink.md](bridgelink.md)).
+   Das Paket bleibt dann die Dokumentation und der Prüfstein; der Kanal baut dieselben Bundles.
 
 ## Was ein Vorschlag für eine Abfrage aussagt
 
@@ -79,16 +81,19 @@ Verlorene Nachkommastellen (`1.1` statt `1.10`) sind eine Abweichung.
 - Die Regeln im Paket reichen zum Nachbau: `tests/nachbau.js` kennt nur `LIESMICH.md` und `zuordnung.json` und trifft alle
   erwarteten Bundles (Test läuft, wenn `node` installiert ist).
 - Knopf und Vorschläge in der Workbench im Browser.
+- Der erzeugte BridgeLink-Kanal baut für jeden Testfall des Pakets dasselbe Bundle (`tests/test_schnittstelle.py`), und im echten
+  BridgeLink dasselbe wie die Python-Pipeline (siehe [bridgelink.md](bridgelink.md)).
 
 ## Grenzen
 
-- **Kein fertiger Thread oder Kanal.** Das Paket ist neutral; die Umsetzung im Kommunikationsserver ist Handarbeit nach den Regeln.
-  Ein erzeugter BridgeLink-Kanal je Schnittstelle ist der nächste Schritt; für Cloverleaf braucht es ein Beispiel aus einer echten Site.
+- **Cloverleaf und Mirth: kein fertiger Thread oder Kanal.** Das Paket ist neutral; die Umsetzung dort ist Handarbeit nach den Regeln.
+  Für BridgeLink gibt es den erzeugten Kanal. Für Cloverleaf braucht es ein Beispiel aus einer echten Site.
 - **Nur breite Tabellen.** Das Feld-Mapping erwartet je Messgröße eine Spalte. Liegen Laborwerte zeilenweise vor
   (eine Zeile je Analyt mit Code, Wert, Einheit), muss die Abfrage sie heute selbst in Spalten bringen.
 - Vorschläge für Abfragen nur an SQLite getestet. Bezeichner werden nach SQL-Standard geschützt; Eigenheiten von Oracle
   oder MSSQL (Schema-Präfix, Groß- und Kleinschreibung) sind nicht geprüft.
 - Die Stichprobe für vermutete Beziehungen umfasst 200 Zeilen je Tabelle.
-- Die Abfrage hat kein Kriterium für neue Zeilen; das hängt vom Kommunikationsserver ab.
+- Die Abfrage im Paket hat kein Kriterium für neue Zeilen; das hängt vom Kommunikationsserver ab. Der BridgeLink-Kanal ergänzt es
+  (Spalte, die je Zeile steigt, siehe [bridgelink.md](bridgelink.md)).
 - Das Skript `tests/nachbau.js` stammt vom selben Verfasser wie die Regeln. Es zeigt, dass die Regeln vollständig sind,
   nicht, dass ein Dritter sie beim ersten Lesen richtig versteht.

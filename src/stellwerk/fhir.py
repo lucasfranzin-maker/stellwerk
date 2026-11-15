@@ -78,13 +78,14 @@ def build_bundle(doc: SourceDoc, sections: list[Section], tpl, cfg: dict,
 
     if not m.patient_id:
         f.append(Finding("META_PATIENT", FEHLER, "Patient", "Die Patientennummer fehlt. Ohne sie gibt es kein gültiges Dokument.",
-                         "Bei HL7: PID-3 prüfen. Bei PDF: --patient-id angeben. Bei SQL: Spalte unter spalten.patient_id zuordnen."))
+                         "In der Workbench im Reiter „Kopfdaten“ eintragen, bei Datenbanken die Spalte dort zuordnen. Bei HL7: PID-3 prüfen. "
+                         "Auf der Kommandozeile: --patient-id."))
     if not sections:
         f.append(Finding("META_INHALT", FEHLER, "Inhalt", "Aus dem Eingang ließ sich kein Text lesen.",
                          "Bei gescannten PDFs: Scanqualität prüfen (300 dpi, gerade, kontrastreich). Sonst Eingangsdatei prüfen."))
     if not m.doc_id:
         f.append(Finding("META_DOKID", FEHLER, "Dokument", "Die Dokumentnummer fehlt.",
-                         "Bei PDF: --dokument-id angeben. Bei SQL: Spalte unter spalten.dokument_id zuordnen."))
+                         "In der Workbench im Reiter „Kopfdaten“ eintragen, bei Datenbanken die Spalte dort zuordnen. Auf der Kommandozeile: --dokument-id."))
     if any(x.severity == FEHLER for x in f):
         return None, f
 

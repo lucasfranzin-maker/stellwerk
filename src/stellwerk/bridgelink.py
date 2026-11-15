@@ -94,6 +94,88 @@ def _connector(meta_id: int, name: str, props: str, transport: str, filt: str) -
             '<mode>DESTINATION</mode><enabled>true</enabled><waitForPrevious>true</waitForPrevious></connector>')
 
 
+def fhir_ziel_props(k: dict) -> str:
+    """HTTP-Sender zum FHIR-Server (CDR): Warteschlange, Wiederholung jede Minute, Anmeldung nach k["fhir_auth"]."""
+    ziel = (k.get("fhir_ziel") or "").strip()
+    auth = k.get("fhir_auth") or "keine"
+    user = k.get("fhir_benutzer") or ""
+    pw = os.environ.get(k.get("fhir_passwort_env") or "", "") if auth == "basic" else ""
+    headers = '<headers class="linked-hash-map"><entry><string>Accept</string><list><string>application/fhir+json</string></list></entry>'
+    if auth == "bearer":
+        tok = os.environ.get(k.get("fhir_token_env") or "", "")
+        if not tok:
+            raise BridgeLinkError("fhir_auth ist bearer, aber das Token fehlt (Umgebungsvariable aus fhir_token_env).")
+        headers += f'<entry><string>Authorization</string><list><string>Bearer {escape(tok)}</string></list></entry>'
+    headers += '</headers>'
+    return (
+        '<properties class="com.mirth.connect.connectors.http.HttpDispatcherProperties" version="{v}"><pluginProperties/>'
+        + _dest_props(True) +
+        f'<host>{escape(ziel)}</host><useProxyServer>false</useProxyServer><proxyAddress></proxyAddress><proxyPort></proxyPort>'
+        f'<method>post</method>{headers}<parameters class="linked-hash-map"/><useHeadersVariable>false</useHeadersVariable>'
+        '<headersVariable></headersVariable><useParametersVariable>false</useParametersVariable><parametersVariable></parametersVariable>'
+        '<responseXmlBody>false</responseXmlBody><responseParseMultipart>false</responseParseMultipart>'
+        '<responseIncludeMetadata>false</responseIncludeMetadata>'
+        '<responseBinaryMimeTypes>application/.*(?&lt;!json|xml)$|image/.*|video/.*|audio/.*</responseBinaryMimeTypes>'
+        '<responseBinaryMimeTypesRegex>true</responseBinaryMimeTypesRegex><multipart>false</multipart>'
+        f'<useAuthentication>{"true" if auth == "basic" else "false"}</useAuthentication><authenticationType>Basic</authenticationType>'
+        f'<usePreemptiveAuthentication>true</usePreemptiveAuthentication><username>{escape(user)}</username><password>{escape(pw)}</password>'
+        '<content>${message.encodedData}</content><contentType>application/fhir+json</contentType><dataTypeBinary>false</dataTypeBinary>'
+        '<charset>UTF-8</charset><socketTimeout>60000</socketTimeout></properties>')
+
+
+def datei_props(ordner: str, muster: str = "${stellwerkDateiname}", inhalt: str = "${message.encodedData}") -> str:
+    """File-Writer in einen Ordner des BridgeLink-Servers (Prüfablage)."""
+    return (
+        '<properties class="com.mirth.connect.connectors.file.FileDispatcherProperties" version="{v}"><pluginProperties/>'
+        + _dest_props(False) +
+        f'<scheme>FILE</scheme><host>{escape(ordner)}</host><outputPattern>{escape(muster)}</outputPattern><anonymous>false</anonymous>'
+        '<username></username><password></password><timeout>10000</timeout><keepConnectionOpen>true</keepConnectionOpen>'
+        '<maxIdleTime>0</maxIdleTime><secure>true</secure><passive>true</passive><validateConnection>true</validateConnection>'
+        '<outputAppend>false</outputAppend><errorOnExists>false</errorOnExists><temporary>true</temporary><binary>false</binary>'
+        f'<charsetEncoding>UTF-8</charsetEncoding><template>{escape(inhalt)}</template></properties>')
+
+
+def meta_xml(spalten: tuple[tuple[str, str], ...]) -> str:
+    return "".join(f'<metaDataColumn><name>{n}</name><type>STRING</type><mappingName>{m}</mappingName></metaDataColumn>' for n, m in spalten)
+
+
+def _aufbewahren(k: dict) -> str:
+    """Aufbewahrungsfristen im Nachrichtenspeicher (Zeilen und Bundles enthalten Patientendaten). Greift erst, wenn der Data Pruner
+    von BridgeLink serverweit eingeschaltet ist."""
+    out = ""
+    for tag, key in (("pruneMetaDataDays", "metadaten_tage"), ("pruneContentDays", "inhalt_tage")):
+        v = k.get(key)
+        if v not in (None, ""):
+            try:
+                n = int(v)
+            except (TypeError, ValueError) as exc:
+                raise BridgeLinkError(f"bridgelink.kanal.{key} muss eine ganze Zahl sein.") from exc
+            if not 1 <= n <= 3650:
+                raise BridgeLinkError(f"bridgelink.kanal.{key} liegt zwischen 1 und 3650 Tagen.")
+            out += f"<{tag}>{n}</{tag}>"
+    return out
+
+
+def kanal_xml(cid: str, name: str, beschreibung: str, source: str, dests: list[str], meta: str, k: dict, version: str) -> str:
+    """Rahmen eines Kanals: Quelle und Ziele rein, vollständiges BridgeLink-Exportformat raus."""
+    xml = (
+        f'<channel version="{{v}}"><id>{cid}</id><nextMetaDataId>{len(dests) + 1}</nextMetaDataId><name>{escape(name)}</name>'
+        f'<description>{escape(beschreibung)}</description><revision>1</revision>{source}'
+        f'<destinationConnectors>{"".join(dests)}</destinationConnectors>'
+        '<preprocessingScript>return message;</preprocessingScript><postprocessingScript>return;</postprocessingScript>'
+        '<deployScript>return;</deployScript><undeployScript>return;</undeployScript>'
+        '<properties version="{v}"><clearGlobalChannelMap>true</clearGlobalChannelMap>'
+        f'<messageStorageMode>{escape(k.get("speicherung") or "PRODUCTION")}</messageStorageMode>'
+        f'<encryptData>{str(bool(k.get("verschluesseln", True))).lower()}</encryptData><encryptAttachments>true</encryptAttachments>'
+        '<encryptCustomMetaData>false</encryptCustomMetaData><removeContentOnCompletion>false</removeContentOnCompletion>'
+        '<removeOnlyFilteredOnCompletion>false</removeOnlyFilteredOnCompletion><removeAttachmentsOnCompletion>false</removeAttachmentsOnCompletion>'
+        f'<initialState>STARTED</initialState><storeAttachments>true</storeAttachments><metaDataColumns>{meta}</metaDataColumns>'
+        '<attachmentProperties version="{v}"><type>None</type><properties/></attachmentProperties>'
+        f'{_resources()}</properties><exportData><metadata><enabled>true</enabled><pruningSettings>{_aufbewahren(k)}'
+        '<archiveEnabled>false</archiveEnabled><pruneErroredMessages>false</pruneErroredMessages></pruningSettings></metadata></exportData></channel>')
+    return xml.replace("{v}", version)
+
+
 def channel_xml(k: dict, listener_user: str, listener_password: str, version: str = "26.9.0") -> tuple[str, str]:
     """Kanal „Stellwerk FHIR-Eingang“ als BridgeLink-Export. Liefert (Kanal-ID, XML)."""
     name = k.get("name") or "Stellwerk FHIR-Eingang"
@@ -132,66 +214,18 @@ def channel_xml(k: dict, listener_user: str, listener_password: str, version: st
 
     dests = []
     if ziel:
-        auth = k.get("fhir_auth") or "keine"
-        user = k.get("fhir_benutzer") or ""
-        pw = os.environ.get(k.get("fhir_passwort_env") or "", "") if auth == "basic" else ""
-        headers = '<headers class="linked-hash-map"><entry><string>Accept</string><list><string>application/fhir+json</string></list></entry>'
-        if auth == "bearer":
-            tok = os.environ.get(k.get("fhir_token_env") or "", "")
-            if not tok:
-                raise BridgeLinkError("fhir_auth ist bearer, aber das Token fehlt (Umgebungsvariable aus fhir_token_env).")
-            headers += f'<entry><string>Authorization</string><list><string>Bearer {escape(tok)}</string></list></entry>'
-        headers += '</headers>'
-        http = (
-            '<properties class="com.mirth.connect.connectors.http.HttpDispatcherProperties" version="{v}"><pluginProperties/>'
-            + _dest_props(True) +
-            f'<host>{escape(ziel)}</host><useProxyServer>false</useProxyServer><proxyAddress></proxyAddress><proxyPort></proxyPort>'
-            f'<method>post</method>{headers}<parameters class="linked-hash-map"/><useHeadersVariable>false</useHeadersVariable>'
-            '<headersVariable></headersVariable><useParametersVariable>false</useParametersVariable><parametersVariable></parametersVariable>'
-            '<responseXmlBody>false</responseXmlBody><responseParseMultipart>false</responseParseMultipart>'
-            '<responseIncludeMetadata>false</responseIncludeMetadata>'
-            '<responseBinaryMimeTypes>application/.*(?&lt;!json|xml)$|image/.*|video/.*|audio/.*</responseBinaryMimeTypes>'
-            '<responseBinaryMimeTypesRegex>true</responseBinaryMimeTypesRegex><multipart>false</multipart>'
-            f'<useAuthentication>{"true" if auth == "basic" else "false"}</useAuthentication><authenticationType>Basic</authenticationType>'
-            f'<usePreemptiveAuthentication>true</usePreemptiveAuthentication><username>{escape(user)}</username><password>{escape(pw)}</password>'
-            '<content>${message.encodedData}</content><contentType>application/fhir+json</contentType><dataTypeBinary>false</dataTypeBinary>'
-            '<charset>UTF-8</charset><socketTimeout>60000</socketTimeout></properties>')
-        dests.append(_connector(1, "FHIR-Ziel", http, "HTTP Sender",
+        dests.append(_connector(1, "FHIR-Ziel", fhir_ziel_props(k), "HTTP Sender",
                                 _filter("Freigegebene Bundles", "return $('stellwerkStatus') == 'ok';")))
-    datei = (
-        '<properties class="com.mirth.connect.connectors.file.FileDispatcherProperties" version="{v}"><pluginProperties/>'
-        + _dest_props(False) +
-        f'<scheme>FILE</scheme><host>{escape(ablage)}</host><outputPattern>${{stellwerkDateiname}}</outputPattern><anonymous>false</anonymous>'
-        '<username></username><password></password><timeout>10000</timeout><keepConnectionOpen>true</keepConnectionOpen>'
-        '<maxIdleTime>0</maxIdleTime><secure>true</secure><passive>true</passive><validateConnection>true</validateConnection>'
-        '<outputAppend>false</outputAppend><errorOnExists>false</errorOnExists><temporary>true</temporary><binary>false</binary>'
-        '<charsetEncoding>UTF-8</charsetEncoding><template>${message.encodedData}</template></properties>')
     regel = "return $('stellwerkStatus') != 'ok';" if ziel else "return true;"
-    dests.append(_connector(len(dests) + 1, "Prüfablage" if ziel else "Ablage", datei, "File Writer",
+    dests.append(_connector(len(dests) + 1, "Prüfablage" if ziel else "Ablage", datei_props(ablage), "File Writer",
                             _filter("Bundles mit Prüfpunkten" if ziel else "Alle Bundles", regel)))
 
-    meta = "".join(f'<metaDataColumn><name>{n}</name><type>STRING</type><mappingName>{m}</mappingName></metaDataColumn>'
-                   for n, m in (("TYP", "stellwerkTyp"), ("STATUS", "stellwerkStatus"), ("QUELLE", "stellwerkQuelle"),
-                                ("DOKUMENTTYP", "stellwerkDokumenttyp")))
+    meta = meta_xml((("TYP", "stellwerkTyp"), ("STATUS", "stellwerkStatus"), ("QUELLE", "stellwerkQuelle"),
+                     ("DOKUMENTTYP", "stellwerkDokumenttyp")))
     beschreibung = ("Nimmt FHIR-Bundles von Stellwerk an (HTTP, Basic-Auth) und leitet sie weiter. "
                     "Freigegebene Bundles gehen an das FHIR-Ziel, Bundles mit Prüfpunkten in die Prüfablage. "
                     "Von Stellwerk erzeugt; Änderungen hier werden bei erneutem Einrichten überschrieben.")
-    xml = (
-        f'<channel version="{{v}}"><id>{cid}</id><nextMetaDataId>{len(dests) + 1}</nextMetaDataId><name>{escape(name)}</name>'
-        f'<description>{escape(beschreibung)}</description><revision>1</revision>{source}'
-        f'<destinationConnectors>{"".join(dests)}</destinationConnectors>'
-        '<preprocessingScript>return message;</preprocessingScript><postprocessingScript>return;</postprocessingScript>'
-        '<deployScript>return;</deployScript><undeployScript>return;</undeployScript>'
-        '<properties version="{v}"><clearGlobalChannelMap>true</clearGlobalChannelMap>'
-        f'<messageStorageMode>{escape(k.get("speicherung") or "PRODUCTION")}</messageStorageMode>'
-        f'<encryptData>{str(bool(k.get("verschluesseln", True))).lower()}</encryptData><encryptAttachments>true</encryptAttachments>'
-        '<encryptCustomMetaData>false</encryptCustomMetaData><removeContentOnCompletion>false</removeContentOnCompletion>'
-        '<removeOnlyFilteredOnCompletion>false</removeOnlyFilteredOnCompletion><removeAttachmentsOnCompletion>false</removeAttachmentsOnCompletion>'
-        f'<initialState>STARTED</initialState><storeAttachments>true</storeAttachments><metaDataColumns>{meta}</metaDataColumns>'
-        '<attachmentProperties version="{v}"><type>None</type><properties/></attachmentProperties>'
-        f'{_resources()}</properties><exportData><metadata><enabled>true</enabled><pruningSettings><archiveEnabled>true</archiveEnabled>'
-        '<pruneErroredMessages>false</pruneErroredMessages></pruningSettings></metadata></exportData></channel>')
-    return cid, xml.replace("{v}", version)
+    return cid, kanal_xml(cid, name, beschreibung, source, dests, meta, k, version)
 
 
 _SOURCE_SCRIPT = """\

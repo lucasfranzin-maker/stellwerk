@@ -34,7 +34,7 @@ stellwerk = "stellwerk.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-stellwerk = ["vorlagen/*.yaml", "*.yaml", "web/*.html", "web/fonts/*", "migrations/*.py", "migrations/*.mako", "migrations/versions/*.py"]
+stellwerk = ["vorlagen/*.yaml", "*.yaml", "*.js", "web/*.html", "web/fonts/*", "migrations/*.py", "migrations/*.mako", "migrations/versions/*.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
