@@ -316,6 +316,40 @@ class Workspace:
         return {"datei": str(target / name)}
 
 
+def check_db_target(cfg: dict, db: str, verwalten: bool, anmeldung: bool) -> None:
+    """Darf diese Datenbankadresse eingetragen oder benutzt werden?
+
+    Der Dienst verbindet sich mit dem Passwort aus seiner Umgebung. Eine Adresse, die auf einen fremden Rechner zeigt,
+    würde ihm dieses Passwort schicken, und der Dienst ließe sich als Sprungbrett ins Netz benutzen. Deshalb:
+    Mit quellen.erlaubte_hosts gilt die Liste für alle. Ohne Liste dürfen bei eingeschalteter Anmeldung nur Nutzer
+    mit der Rolle „verwalten“ eine Datenbank im Netz eintragen. SQLite-Dateien sind davon nicht betroffen.
+    """
+    from .sqlsource import SqlError, connection_target
+    if not db:
+        return
+    try:
+        host, port, umleitend, sonstige = connection_target(db)
+    except SqlError as exc:
+        raise ApiError(400, str(exc)) from exc
+    if db.startswith("sqlite:"):
+        return
+    erlaubt = sorted({str(h).strip().lower() for h in ((cfg.get("quellen") or {}).get("erlaubte_hosts") or []) if str(h).strip()})
+    wo = host or "(kein Rechnername in der Adresse)"
+    if erlaubt:
+        if umleitend:
+            raise ApiError(403, f"Die Datenbankadresse enthält Parameter, die das Ziel der Verbindung ändern ({', '.join(umleitend)}). "
+                                "Mit quellen.erlaubte_hosts ist das nicht zulässig; Rechner und Port gehören vor den Schrägstrich.")
+        if host not in erlaubt and f"{host}:{port}" not in erlaubt:
+            raise ApiError(403, f"Die Datenbank auf {wo} ist nicht freigegeben. Freigegeben sind: {', '.join(erlaubt)} "
+                                "(quellen.erlaubte_hosts in der Konfiguration).")
+        if sonstige and anmeldung and not verwalten:
+            raise ApiError(403, f"Die Datenbankadresse enthält Parameter, die nur die Rolle „verwalten“ setzen darf ({', '.join(sonstige)}).")
+        return
+    if anmeldung and not verwalten:
+        raise ApiError(403, f"Die Datenbank auf {wo} ist nicht freigegeben. Jemand mit der Rolle „verwalten“ muss die Adresse eintragen, "
+                            "oder der Rechner wird in der Konfiguration unter quellen.erlaubte_hosts freigegeben.")
+
+
 def discover(ws: Workspace, cfg: dict, db: str, entscheidungen: dict | None) -> dict:
     from . import discovery
     if not db:

@@ -38,7 +38,15 @@ aside{background:var(--side);display:flex;flex-direction:column;min-width:0}
 .ib:hover{background:var(--ink);color:var(--paper)}.ib.dang{color:var(--rot)}.ib.dang:hover{background:var(--rot);color:#fff}
 .node input{flex:1;min-width:0;height:24px;border:2px solid var(--blau);background:var(--field);padding:0 6px}
 .kids{margin-left:14px;border-left:1px solid var(--line);padding-left:4px}
+[hidden]{display:none!important}
 .navf{padding:10px 16px 12px;color:var(--mut);font-size:13px}
+.navf.wer{display:flex;align-items:baseline;gap:8px;color:var(--ink)}.navf.wer b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.navf.wer span{color:var(--mut);white-space:nowrap}.navf.wer button{margin-left:auto;flex:none;font:inherit;font-weight:500;background:none;border:0;padding:0;color:var(--ink);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.navf.wer button:hover{color:var(--blau)}.navf.wer button:focus-visible{outline:2px solid var(--blau);outline-offset:2px}
+.sperre{position:fixed;inset:0;background:rgba(226,229,232,.92);display:grid;place-items:center;z-index:50}
+.sperre div{background:var(--paper);border-top:2px solid var(--ink);padding:22px 26px;max-width:420px}.sperre h2{font-size:20px;font-weight:600;margin:0 0 6px}.sperre p{margin:0 0 16px}
+.sperre a{display:inline-block;background:var(--ink);color:var(--paper);font-weight:600;padding:7px 16px;border-radius:3px;text-decoration:none}.sperre a:hover{background:#333}.sperre a:focus-visible{outline:2px solid var(--blau);outline-offset:2px}
+.nurlesen{padding:7px 16px;background:var(--paper);border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:9px}.nurlesen::before{content:"";width:9px;height:9px;flex:none;background:var(--gelb)}
 .hint{padding:8px 10px;color:var(--mut)}
 /* Kopf */
 main{display:flex;flex-direction:column;min-width:0;min-height:0}
@@ -135,7 +143,7 @@ table.t td{padding:5px 10px;border-bottom:1px solid var(--line);max-width:240px;
   <div class="brand"><span aria-hidden="true"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h5l6 10h5"/><path d="M4 17h5l2-3.3"/><path d="M15 7h5"/></svg></span>Stellwerk</div>
   <div class="navh"><span>Projekte</span><button class="ib" id="addroot" aria-label="Neues Projekt" title="Neues Projekt"></button></div>
   <nav class="tree" id="tree" aria-label="Projekte"></nav>
-  <div class="navf">Daten bleiben auf diesem Rechner.</div>
+  <div class="navf" id="navf">Daten bleiben auf diesem Rechner.</div>
 </aside>
 <main id="main"></main>
 </div>
@@ -164,17 +172,34 @@ function h(tag, attrs, ...kids) {
 }
 const S = { tree: {kinder: []}, vorlagen: [], sel: null, task: null, lauf: null, busy: false, edit: null, del: null, tabM: 'zuordnung', tabO: 'json' };
 const uid = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), b => b.toString(36).padStart(2, '0')).join('').slice(0, 12);
+const KOPF = { 'X-Stellwerk-Anfrage': '1' };   // weist ändernde Anfragen als Anfragen dieser Oberfläche aus
+function abgelaufen() {
+  if (document.querySelector('.sperre')) return;
+  document.body.append(h('div', { class: 'sperre', role: 'alertdialog', 'aria-labelledby': 'sperre-t' }, h('div', null,
+    h('h2', { id: 'sperre-t' }, 'Sitzung abgelaufen'), h('p', null, 'Bitte neu anmelden. Gespeicherte Aufgaben bleiben erhalten.'),
+    h('a', { href: '/anmelden?ziel=%2F' }, 'Neu anmelden'))));
+  document.querySelector('.sperre a').focus();
+}
 async function api(method, path, body, raw) {
-  const r = await fetch('/api/' + path, { method, body: raw ? body : body ? JSON.stringify(body) : undefined });
+  const r = await fetch('/api/' + path, { method, headers: KOPF, body: raw ? body : body ? JSON.stringify(body) : undefined });
   const j = await r.json().catch(() => ({ fehler: 'Unerwartete Antwort des Dienstes.' }));
+  if (r.status === 401) abgelaufen();
   if (!r.ok) throw new Error(j.fehler || 'Fehler ' + r.status);
   return j;
+}
+const darf = rolle => (S.ich ? S.ich.rollen : []).includes(rolle);
+async function abmelden() { try { const r = await fetch('/abmelden', { method: 'POST', headers: KOPF }); location.href = (await r.json()).weiter; } catch (e) { toast('Abmelden fehlgeschlagen: ' + e.message); } }
+function drawWer() {
+  const f = document.getElementById('navf'), i = S.ich;
+  if (!i || i.anmeldung !== 'oidc') return;
+  const rolle = { lesen: 'liest', bearbeiten: 'bearbeitet', verwalten: 'verwaltet' }[i.rollen[i.rollen.length - 1]] || '';
+  f.className = 'navf wer'; f.replaceChildren(h('b', { title: i.name }, i.name), h('span', null, rolle), h('button', { type: 'button', onclick: abmelden }, 'Abmelden'));
 }
 function toast(msg, cls) { document.querySelectorAll('.toast').forEach(t => t.remove()); const t = h('div', { class: 'toast ' + (cls || 'fehler'), role: 'status' }, msg); document.body.append(t); setTimeout(() => t.remove(), 6000); }
 
 /* ---------- Explorer ---------- */
 function find(id, list = S.tree.kinder, trail = []) { for (const n of list) { if (n.id === id) return { n, list, trail: [...trail, n] }; if (n.kinder) { const r = find(id, n.kinder, [...trail, n]); if (r) return r; } } return null; }
-async function saveTree() { try { await api('PUT', 'baum', S.tree); } catch (e) { toast(e.message); } }
+async function saveTree() { if (!darf('bearbeiten')) return; try { await api('PUT', 'baum', S.tree); } catch (e) { toast(e.message); } }
 function addNode(parent, typ) {
   const n = { id: uid(), name: typ === 'ordner' ? 'Neuer Ordner' : 'Neue Aufgabe', typ, ...(typ === 'ordner' ? { kinder: [], offen: true } : {}) };
   (parent ? parent.kinder : S.tree.kinder).push(n); if (parent) parent.offen = true;
@@ -182,7 +207,8 @@ function addNode(parent, typ) {
 }
 function drawTree() {
   const root = document.getElementById('tree'); root.replaceChildren();
-  if (!S.tree.kinder.length) root.append(h('p', { class: 'hint' }, 'Noch kein Projekt. Mit + ein Projekt anlegen, z. B. „Krankenhaus A“, darunter Ordner und Aufgaben.'));
+  const schreiben = darf('bearbeiten'); document.getElementById('addroot').hidden = !schreiben;
+  if (!S.tree.kinder.length) root.append(h('p', { class: 'hint' }, schreiben ? 'Noch kein Projekt. Mit + ein Projekt anlegen, z. B. „Krankenhaus A“, darunter Ordner und Aufgaben.' : 'Noch kein Projekt angelegt.'));
   const draw = (list, into) => list.forEach(n => {
     const isF = n.typ === 'ordner';
     const row = h('div', { class: 'node' + (S.sel === n.id ? ' sel' : '') + (isF && n.offen ? ' open' : '') });
@@ -194,7 +220,7 @@ function drawTree() {
       row.append(inp); setTimeout(() => { inp.focus(); inp.select(); });
     } else {
       row.append(h('button', { class: 'nm', title: n.name, 'aria-expanded': isF ? String(!!n.offen) : null, onclick: () => { if (isF) { n.offen = !n.offen; saveTree(); drawTree(); } else openTask(n.id); } }, n.name));
-      const acts = h('span', { class: 'acts' });
+      const acts = h('span', { class: 'acts', hidden: !schreiben });
       const ib = (ic, label, fn, cls) => h('button', { class: 'ib ' + (cls || ''), 'aria-label': label, title: label, onclick: e => { e.stopPropagation(); fn(); } }, icon(ic));
       if (S.del === n.id) acts.append(ib('check', 'Wirklich löschen', () => { const f = find(n.id); f.list.splice(f.list.indexOf(n), 1); if (S.sel && !find(S.sel)) { S.sel = null; drawMain(); } S.del = null; saveTree(); drawTree(); }, 'dang'), ib('x', 'Abbrechen', () => { S.del = null; drawTree(); }));
       else { if (isF) acts.append(ib('fplus', 'Ordner darunter anlegen', () => addNode(n, 'ordner')), ib('plus', 'Aufgabe darunter anlegen', () => addNode(n, 'aufgabe')));
@@ -209,7 +235,7 @@ function drawTree() {
 
 /* ---------- Aufgabe ---------- */
 async function openTask(id) { S.sel = id; S.lauf = null; S.task = null; S.tabM = 'zuordnung'; S.tabO = 'json'; S.erschl = null; S.paketDaten = false; S.kanalStand = null; drawTree(); drawMain(); try { S.task = await api('GET', 'aufgabe/' + id); drawMain(); if (S.task.quelle || (S.task.art === 'sql' && S.task.abfrage)) run(); } catch (e) { toast(e.message); } }
-async function saveTask() { const { quelle, ...t } = S.task; S.task = await api('PUT', 'aufgabe/' + S.sel, t); }
+async function saveTask() { if (!darf('bearbeiten')) throw new Error('Mit Leserechten lässt sich nichts ändern oder ausführen.'); const { quelle, ...t } = S.task; S.task = await api('PUT', 'aufgabe/' + S.sel, t); }
 async function run() {
   if (S.busy) return; S.busy = true; drawMain();
   try { await saveTask(); S.lauf = await api('POST', 'aufgabe/' + S.sel + '/lauf'); }
@@ -220,6 +246,7 @@ async function paket() {
   const daten = !!S.paketDaten;
   try { await saveTask();
     const r = await fetch('/api/aufgabe/' + S.sel + '/uebergabe' + (daten ? '?daten=1' : ''));
+    if (r.status === 401) abgelaufen();
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.fehler || 'Fehler ' + r.status); }
     const name = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || 'uebergabe.zip';
     const a = h('a', { href: URL.createObjectURL(await r.blob()), download: name }); document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
@@ -229,7 +256,7 @@ async function paket() {
 async function vorschlagen(db) {
   if (!db.trim()) { toast('Erst die Datenbankadresse eintragen.'); return; }
   S.task.db = db; S.erschl = { laeuft: true }; drawMain();
-  try { await saveTask(); const r = await api('POST', 'erschliessen', { db }); S.erschl = { abfragen: r.abfragen, z: r.zusammenfassung }; }
+  try { await saveTask(); const r = await api('POST', 'erschliessen', { db, aufgabe: S.sel }); S.erschl = { abfragen: r.abfragen, z: r.zusammenfassung }; }
   catch (e) { S.erschl = null; toast(e.message); }
   drawMain();
 }
@@ -466,8 +493,9 @@ function drawMain() {
   const main = document.getElementById('main'); const keep = [...main.querySelectorAll('.pb')].map(e => e.scrollTop);
   main.replaceChildren();
   const f = S.sel && find(S.sel);
-  if (!f || !S.task) { main.append(h('div', { class: 'empty' }, h('div', {}, h('b', {}, f ? 'Lädt …' : 'Aufgabe wählen'), f ? '' : 'Links ein Projekt anlegen, darunter Ordner und Aufgaben. Eine Aufgabe öffnet Quelle, Zuordnung und FHIR-Ausgabe nebeneinander.'))); return; }
+  if (!f || !S.task) { main.append(h('div', { class: 'empty' }, h('div', {}, h('b', {}, f ? 'Lädt …' : 'Aufgabe wählen'), f ? '' : (darf('bearbeiten') ? 'Links ein Projekt anlegen, darunter Ordner und Aufgaben. ' : '') + 'Eine Aufgabe öffnet Quelle, Zuordnung und FHIR-Ausgabe nebeneinander.'))); return; }
   const L = S.lauf, st = { ok: 'In Ordnung', pruefen: 'Zu prüfen', fehler: 'Fehler' };
+  if (S.ich && !darf('bearbeiten')) main.append(h('div', { class: 'nurlesen', role: 'note' }, 'Sie haben Leserechte. Ansehen geht, ändern und ausführen nicht.'));
   main.append(h('div', { class: 'bar' }, h('div', {}, h('div', { class: 'crumb' }, f.trail.slice(0, -1).map(n => n.name).join(' / ') || 'Projekte'), h('h1', {}, f.n.name)),
     L ? h('span', { class: 'tag badge ' + L.status }, st[L.status]) : null, L ? h('span', { class: 'satz' }, L.satz) : null, h('span', { class: 'sp' }),
     h('a', { class: 'btn', href: '/api/aufgabe/' + S.sel + '/bundle', download: 'bundle.json', 'aria-disabled': String(!(L && L.bundle)) }, icon('down'), 'Bundle laden'),
@@ -491,7 +519,8 @@ function drawMain() {
 document.getElementById('addroot').append(icon('plus'));
 document.getElementById('addroot').onclick = () => addNode(null, 'ordner');
 api('GET', 'zustellung').then(z => { S.zustellung = z; }).catch(() => {});
-api('GET', 'baum').then(t => { S.vorlagen = t.vorlagen; S.tree = { kinder: t.kinder }; drawTree(); drawMain(); }).catch(e => { console.error(e); toast(e.message); });
+api('GET', 'ich').then(i => { S.ich = i; drawWer(); return api('GET', 'baum'); })
+  .then(t => { S.vorlagen = t.vorlagen; S.tree = { kinder: t.kinder }; drawTree(); drawMain(); }).catch(e => { console.error(e); toast(e.message); });
 </script>
 </body>
 </html>

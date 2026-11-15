@@ -11,7 +11,7 @@ from importlib import resources
 from pathlib import Path
 
 from sqlalchemy import (JSON, BigInteger, Boolean, DateTime, ForeignKey, Integer, LargeBinary, String, Text,
-                        create_engine, event, func, select)
+                        create_engine, delete, event, func, select)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 
@@ -77,6 +77,20 @@ class Audit(Base):
     aktion: Mapped[str] = mapped_column(String(60))
     ziel: Mapped[str] = mapped_column(String(200), default="")
     detail: Mapped[str] = mapped_column(Text, default="")
+
+
+class Sitzung(Base):
+    """Sitzung eines angemeldeten Nutzers. Der Cookie-Wert steht hier nie, nur sein SHA-256."""
+    __tablename__ = "sitzung"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    art: Mapped[str] = mapped_column(String(10))                       # nutzer
+    nutzer: Mapped[str] = mapped_column(String(200), default="")       # Kennung beim Identitätsdienst (sub)
+    name: Mapped[str] = mapped_column(String(200), default="")
+    rollen: Mapped[list] = mapped_column(JSON, default=list)
+    daten: Mapped[dict] = mapped_column(JSON, default=dict)            # ID-Token als Hinweis beim Abmelden
+    erstellt: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"))      # Sekunden seit 1970 (UTC)
+    zuletzt: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"))
+    laeuft_ab: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), index=True)
 
 
 class Store:
@@ -213,6 +227,47 @@ class Store:
         with self.session() as s:
             return [{"zeit": a.zeit.isoformat(), "wer": a.wer, "aktion": a.aktion, "ziel": a.ziel, "detail": a.detail}
                     for a in s.scalars(select(Audit).order_by(Audit.id.desc()).limit(limit))]
+
+    # --- Sitzungen
+    def sitzung(self, sid: str) -> dict | None:
+        with self.session() as s:
+            r = s.get(Sitzung, sid)
+            return None if r is None else {"id": r.id, "art": r.art, "nutzer": r.nutzer, "name": r.name, "rollen": list(r.rollen or []),
+                                           "daten": dict(r.daten or {}), "zuletzt": r.zuletzt, "laeuft_ab": r.laeuft_ab}
+
+    def sitzung_anlegen(self, sid: str, art: str, laeuft_ab: int, jetzt: int, nutzer: str = "", name: str = "",
+                        rollen: list | None = None, daten: dict | None = None) -> None:
+        with self.session.begin() as s:
+            s.add(Sitzung(id=sid, art=art, nutzer=nutzer, name=name, rollen=rollen or [], daten=daten or {},
+                          erstellt=jetzt, zuletzt=jetzt, laeuft_ab=laeuft_ab))
+
+    def sitzung_beruehren(self, sid: str, jetzt: int) -> None:
+        with self.session.begin() as s:
+            r = s.get(Sitzung, sid)
+            if r:
+                r.zuletzt = jetzt
+
+    def sitzung_loeschen(self, sid: str) -> None:
+        with self.session.begin() as s:
+            r = s.get(Sitzung, sid)
+            if r:
+                s.delete(r)
+
+    def sitzungen(self, jetzt: int) -> list[dict]:
+        """Laufende Sitzungen angemeldeter Nutzer, ohne Kennungen, die sich als Cookie verwenden ließen."""
+        with self.session() as s:
+            return [{"name": r.name, "rolle": (r.rollen or [""])[-1], "seit": r.erstellt, "zuletzt": r.zuletzt, "bis": r.laeuft_ab}
+                    for r in s.scalars(select(Sitzung).where(Sitzung.art == "nutzer", Sitzung.laeuft_ab >= jetzt).order_by(Sitzung.erstellt))]
+
+    def sitzungen_beenden(self, name: str | None = None) -> int:
+        """Sitzungen eines Nutzers beenden, ohne Namen alle. Liefert die Anzahl."""
+        with self.session.begin() as s:
+            q = delete(Sitzung).where(Sitzung.art == "nutzer")
+            return s.execute(q.where(Sitzung.name == name) if name else q).rowcount or 0
+
+    def sitzungen_aufraeumen(self, jetzt: int) -> None:
+        with self.session.begin() as s:
+            s.execute(delete(Sitzung).where(Sitzung.laeuft_ab < jetzt))
 
     def is_empty(self) -> bool:
         with self.session() as s:

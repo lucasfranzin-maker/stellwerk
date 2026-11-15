@@ -5,7 +5,7 @@ Scans), schlägt vor, wie sich die Inhalte auf FHIR abbilden, und zeigt zu jedem
 dann tut. Die fertige Schnittstelle übernimmt der Kommunikationsserver (Cloverleaf, BridgeLink, Mirth), der sie im
 Betrieb fährt.
 
-Stand: Version 0.2, Prototyp, bisher nur mit erfundenen Daten. Was geprüft ist und was nicht, steht unter [Grenzen](#grenzen).
+Stand: Version 0.3, Prototyp, bisher nur mit erfundenen Daten. Was geprüft ist und was nicht, steht unter [Grenzen](#grenzen).
 
 ## Wie die Teile zusammenspielen
 
@@ -193,8 +193,10 @@ statt sie zu verdoppeln.
 - Numerische `OBX` werden als Textzeilen übernommen, nicht als Observation.
 
 **Betrieb und Sicherheit**
-- Der HTTP-Dienst und die Workbench haben noch keine Anmeldung und keine Benutzerverwaltung (geplant: OIDC/AD).
-  Bis dahin nur auf `127.0.0.1` oder hinter einem Reverse-Proxy betreiben, der selbst anmeldet.
+- Anmeldung über den Identitätsdienst des Hauses (OpenID Connect) mit drei Rollen, siehe [docs/anmeldung.md](docs/anmeldung.md).
+  Geprüft gegen Keycloak 26.8.2, nicht gegen AD FS, Entra ID oder das Active Directory eines Hauses. Ohne eingerichtete
+  Anmeldung startet der Dienst nur auf `127.0.0.1`.
+- Der MLLP-Empfang kennt keine Anmeldung. Die Seite erlaubt in der Content-Security-Policy noch `unsafe-inline`.
 - Der Kanal-Eingang von BridgeLink spricht kein TLS. Der erzeugte Kanal enthält das Datenbankpasswort, und BridgeLink speichert
   Zeilen und Bundles (Patientendaten) im Nachrichtenspeicher; der Data Pruner dort ist ab Werk aus
   (siehe [docs/bridgelink.md](docs/bridgelink.md)).
@@ -210,6 +212,7 @@ oder Dateinamen, nur Kanal, Systemname, Status, Dauer und Befundcodes.
 | Thema | Datei |
 |---|---|
 | Installation im Haus oder in der Cloud, Docker | [docs/betrieb.md](docs/betrieb.md) |
+| Anmeldung, Rollen, Dienst-Token | [docs/anmeldung.md](docs/anmeldung.md) |
 | Übergabepaket und Abfragevorschläge | [docs/uebergabe.md](docs/uebergabe.md) |
 | BridgeLink: Eingangskanal und Schnittstelle je Aufgabe | [docs/bridgelink.md](docs/bridgelink.md) |
 | Anbindung an Cloverleaf | [docs/cloverleaf.md](docs/cloverleaf.md) |
