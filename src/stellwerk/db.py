@@ -84,7 +84,11 @@ class Store:
         if url.startswith("sqlite:///"):
             Path(url[10:]).parent.mkdir(parents=True, exist_ok=True)
         self.url = url
-        self.engine = create_engine(url, future=True, pool_pre_ping=True)
+        try:
+            self.engine = create_engine(url, future=True, pool_pre_ping=True)
+        except ImportError as exc:
+            from .sqlsource import SqlError, driver_missing
+            raise SqlError("Datenbank von Stellwerk: " + driver_missing(exc)) from exc
         if self.engine.dialect.name == "sqlite":
             @event.listens_for(self.engine, "connect")
             def _fk(dbapi_con, _):                                  # Fremdschlüssel und gleichzeitiges Lesen

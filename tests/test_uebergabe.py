@@ -200,8 +200,8 @@ def test_paket_reicht_zum_nachbau(labor, client, tmp_path):
     if not node:
         pytest.skip("node ist nicht installiert")
     z = zipfile.ZipFile(io.BytesIO(client.get("/api/aufgabe/task000001/uebergabe", params={"daten": 1}).content))
-    z.extractall(tmp_path)
-    root = next(tmp_path.iterdir())
+    z.extractall(tmp_path / "paket")          # eigener Ordner: tmp_path enthält auch die Dateien der Fixtures
+    root = next((tmp_path / "paket").iterdir())
     faelle = sorted(root.glob("testfaelle/*")) + sorted(root.glob("echte-zeilen/*"))
     assert len(faelle) == 11
     for d in faelle:

@@ -85,6 +85,29 @@ def check_readonly(query: str) -> None:
         raise SqlError("Stellwerk führt nur lesende Abfragen aus (SELECT). Diese Abfrage wurde nicht ausgeführt.")
 
 
+_DRIVERS = {
+    "psycopg": "pip install 'stellwerk[postgres]'",
+    "psycopg2": "pip install psycopg2-binary",
+    "oracledb": "pip install oracledb",
+    "cx_Oracle": "pip install oracledb (Adresse dann mit oracle+oracledb://)",
+    "pyodbc": "pip install pyodbc",
+    "pymssql": "pip install pymssql",
+    "pymysql": "pip install pymysql",
+    "MySQLdb": "pip install mysqlclient",
+    "mariadb": "pip install mariadb",
+}
+
+
+def driver_missing(exc: ImportError) -> str:
+    """SQLAlchemy kennt die Datenbankart, aber das Python-Modul für die Verbindung fehlt. Sagen, was zu installieren ist."""
+    name = (getattr(exc, "name", None) or "").split(".")[0]
+    if not name:
+        return f"Der Treiber für diese Datenbank lässt sich nicht laden: {exc}"
+    how = _DRIVERS.get(name, f"pip install {name}")
+    return (f"Der Datenbanktreiber „{name}“ ist auf dem Stellwerk-Server nicht installiert. "
+            f"Nachinstallieren mit: {how}")
+
+
 def run_query(db: str, query: str, limit: int | None = None) -> tuple[list[str], list[tuple]]:
     check_readonly(query)
     db = resolve_url(db)
@@ -112,6 +135,8 @@ def run_query(db: str, query: str, limit: int | None = None) -> tuple[list[str],
             res = con.execute(sqlalchemy.text(query))
             cols = list(res.keys())
             rows = res.fetchmany(limit) if limit else res.fetchall()
+    except ImportError as exc:
+        raise SqlError(driver_missing(exc)) from exc
     except sqlalchemy.exc.SQLAlchemyError as exc:
         raise SqlError(f"Die Datenbank meldet: {str(exc).splitlines()[0]}") from exc
     return cols, [tuple(r) for r in rows]

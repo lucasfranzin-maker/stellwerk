@@ -397,10 +397,11 @@ def main(argv: list[str] | None = None) -> int:
     m.set_defaults(fn=cmd_mllp)
 
     args = ap.parse_args(argv)
+    from .sqlsource import SqlError
     try:
         cfg = config.load(args.config)
         return args.fn(args, cfg)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, SqlError) as exc:
         return _fail(str(exc))
 
 

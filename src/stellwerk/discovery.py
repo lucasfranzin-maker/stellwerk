@@ -87,6 +87,9 @@ def crawl(db: str, sample: int = 200, with_values: bool = True) -> dict:
                 n = con.execute(sqlalchemy.select(sqlalchemy.func.count()).select_from(tab)).scalar()
                 rows = [tuple(r) for r in con.execute(sqlalchemy.select(tab).limit(int(sample))).fetchall()] if sample and with_values else []
                 tables.append({"name": t, "zeilen": n, "spalten": cols, "fremdschluessel": fks, "_rows": rows})
+    except ImportError as exc:
+        from .sqlsource import driver_missing
+        raise DiscoveryError(driver_missing(exc)) from exc
     except sqlalchemy.exc.SQLAlchemyError as exc:
         raise DiscoveryError(f"Die Datenbank meldet: {str(exc).splitlines()[0]}") from exc
     return {"tabellen": tables}

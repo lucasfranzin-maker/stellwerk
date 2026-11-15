@@ -108,3 +108,24 @@ def test_kein_passwort_in_der_datenbank(api, client, bsp, monkeypatch):
     assert store.decisions("sqlite:///${STELLWERK_DB_KIS}") == {"ARZTBRIEF.ARZT": "autor"}
     assert store.decisions("postgresql://kis:***@127.0.0.1:1/kis") == {"A.B": "autor"}
     assert "geheim" not in str(store.audit_log()) and "geheim" not in str(store.decisions("postgresql://kis:geheim@127.0.0.1:1/kis"))
+
+
+def test_fehlender_datenbanktreiber_ist_eine_meldung(api, monkeypatch):
+    """Ist das Python-Modul für eine Datenbankart nicht installiert, sagt die Meldung, was nachzuinstallieren ist.
+    Vorher war das ein Serverfehler ohne Hinweis (aufgefallen in der CI, wo psycopg fehlt)."""
+    import sqlalchemy
+
+    from stellwerk import sqlsource
+    from stellwerk.db import Store
+
+    def kein_treiber(*a, **k):
+        raise ModuleNotFoundError("No module named 'oracledb'", name="oracledb")
+    monkeypatch.setattr(sqlalchemy, "create_engine", kein_treiber)
+    monkeypatch.setenv("STELLWERK_DB_ORA", "geheim")
+    with pytest.raises(ApiError, match="oracledb.*nicht installiert.*pip install oracledb"):
+        api("POST", "erschliessen", {"db": "oracle+oracledb://kis:${STELLWERK_DB_ORA}@db.haus/kis"})
+    with pytest.raises(sqlsource.SqlError, match="oracledb.*nicht installiert"):
+        sqlsource.run_query("oracle+oracledb://kis:${STELLWERK_DB_ORA}@db.haus/kis", "SELECT 1 FROM dual")
+    monkeypatch.setattr("stellwerk.db.create_engine", kein_treiber)
+    with pytest.raises(sqlsource.SqlError, match="Datenbank von Stellwerk"):
+        Store("oracle+oracledb://stellwerk@db.haus/stellwerk")
