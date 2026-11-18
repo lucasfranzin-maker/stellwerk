@@ -41,7 +41,7 @@ REGELN: list[tuple[str, str, str]] = [
     ("POST", r"/abmelden", OFFEN),
     ("GET", r"/api/ich", OFFEN),
     ("GET", r"/", "lesen"),
-    ("GET", r"/api/(baum|laeufe|zustellung|bridgelink/status|openapi\.json)", "lesen"),
+    ("GET", r"/api/(baum|laeufe|kennzahlen|zustellung|bridgelink/status|openapi\.json)", "lesen"),
     ("GET", r"/api/aufgabe/[^/]+(/(bundle|kanal))?", "lesen"),
     ("GET", r"/v1/health", "lesen"),
     ("GET", r"/probieren", "bearbeiten"),

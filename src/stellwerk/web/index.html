@@ -39,6 +39,9 @@ aside{background:var(--side);display:flex;flex-direction:column;min-width:0}
 .node input{flex:1;min-width:0;height:24px;border:2px solid var(--blau);background:var(--field);padding:0 6px}
 .kids{margin-left:14px;border-left:1px solid var(--line);padding-left:4px}
 [hidden]{display:none!important}
+.navb{display:block;width:100%;text-align:left;font:inherit;font-weight:500;background:none;border:0;border-top:1px solid var(--line);padding:9px 16px;color:var(--ink);cursor:pointer}
+.navb:hover{background:rgba(0,0,0,.04)}.navb:focus-visible{outline:2px solid var(--blau);outline-offset:-2px}.navb[aria-pressed=true]{box-shadow:inset 3px 0 0 var(--blau)}
+.kz{width:100%;border-collapse:collapse}.kz th,.kz td{padding:6px 12px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}.kz td.n,.kz th.n{text-align:right;font-variant-numeric:tabular-nums}
 .navf{padding:10px 16px 12px;color:var(--mut);font-size:13px}
 .navf.wer{display:flex;align-items:baseline;gap:8px;color:var(--ink)}.navf.wer b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .navf.wer span{color:var(--mut);white-space:nowrap}.navf.wer button{margin-left:auto;flex:none;font:inherit;font-weight:500;background:none;border:0;padding:0;color:var(--ink);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
@@ -143,6 +146,7 @@ table.t td{padding:5px 10px;border-bottom:1px solid var(--line);max-width:240px;
   <div class="brand"><span aria-hidden="true"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h5l6 10h5"/><path d="M4 17h5l2-3.3"/><path d="M15 7h5"/></svg></span>Stellwerk</div>
   <div class="navh"><span>Projekte</span><button class="ib" id="addroot" aria-label="Neues Projekt" title="Neues Projekt"></button></div>
   <nav class="tree" id="tree" aria-label="Projekte"></nav>
+  <button class="navb" id="betrieb" type="button">Betrieb</button>
   <div class="navf" id="navf">Daten bleiben auf diesem Rechner.</div>
 </aside>
 <main id="main"></main>
@@ -234,7 +238,7 @@ function drawTree() {
 }
 
 /* ---------- Aufgabe ---------- */
-async function openTask(id) { S.sel = id; S.lauf = null; S.task = null; S.tabM = 'zuordnung'; S.tabO = 'json'; S.erschl = null; S.paketDaten = false; S.kanalStand = null; drawTree(); drawMain(); try { S.task = await api('GET', 'aufgabe/' + id); drawMain(); if (S.task.quelle || (S.task.art === 'sql' && S.task.abfrage)) run(); } catch (e) { toast(e.message); } }
+async function openTask(id) { S.betrieb = false; S.sel = id; S.lauf = null; S.task = null; S.tabM = 'zuordnung'; S.tabO = 'json'; S.erschl = null; S.paketDaten = false; S.kanalStand = null; drawTree(); drawMain(); try { S.task = await api('GET', 'aufgabe/' + id); drawMain(); if (S.task.quelle || (S.task.art === 'sql' && S.task.abfrage)) run(); } catch (e) { toast(e.message); } }
 async function saveTask() { if (!darf('bearbeiten')) throw new Error('Mit Leserechten lässt sich nichts ändern oder ausführen.'); const { quelle, ...t } = S.task; S.task = await api('PUT', 'aufgabe/' + S.sel, t); }
 async function run() {
   if (S.busy) return; S.busy = true; drawMain();
@@ -529,9 +533,33 @@ function paneOut() {
   return h('section', { class: 'pane out', 'aria-label': 'FHIR-Ausgabe' }, h('div', { class: 'ph' }, tabs(S.tabO, [['json', 'Bundle.json'], ['val', 'Prüfung und Ablage']], k => S.tabO = k)), body);
 }
 
+async function betrieb(stunden) {
+  S.betrieb = true; S.sel = null; S.task = null; S.lauf = null; S.kz = null; S.kzStunden = stunden || S.kzStunden || 24; drawTree(); drawMain();
+  try { S.kz = await api('GET', 'kennzahlen?stunden=' + S.kzStunden); } catch (e) { S.kz = { fehler: e.message, gruppen: [] }; }
+  drawMain();
+}
+function drawBetrieb(main) {
+  const k = S.kz, zeit = z => new Date(z).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
+  const fenster = h('select', { class: 'in', style: 'width:auto', 'aria-label': 'Zeitraum', onchange: () => betrieb(+fenster.value) },
+    [[24, 'letzte 24 Stunden'], [168, 'letzte 7 Tage'], [720, 'letzte 30 Tage']].map(([v, l]) => h('option', { value: v, selected: v === S.kzStunden }, l)));
+  main.append(h('div', { class: 'bar' }, h('div', {}, h('div', { class: 'crumb' }, 'Laufprotokoll'), h('h1', {}, 'Betrieb')), h('span', { class: 'sp' }), fenster));
+  if (!k) { main.append(h('div', { class: 'pad mut' }, 'Lädt …')); return; }
+  if (k.fehler) { main.append(h('div', { class: 'pad' }, h('span', { class: 'tag fehler' }, 'Nicht lesbar'), ' ', k.fehler)); return; }
+  const g = [...k.gruppen].sort((a, b) => (b.fehler - a.fehler) || (b.pruefen - a.pruefen) || (b.laeufe - a.laeufe));
+  const n = (v, cls) => h('td', { class: 'n' }, v ? h('span', { class: cls ? 'tag ' + cls : '' }, String(v)) : '0');
+  main.append(h('div', { class: 'pad mut', style: 'padding-bottom:0' }, k.gesamt.laeufe + ' Läufe, ' + k.gesamt.fehler + ' mit Fehler, ' + k.gesamt.pruefen + ' zu prüfen. Das Protokoll enthält keine Patientendaten und keine Dateinamen: nur Kanal, Quelle, Status, Dauer und Befundcodes.'));
+  if (!g.length) { main.append(h('div', { class: 'empty' }, h('div', {}, h('b', {}, 'Keine Läufe in diesem Zeitraum'), 'Läufe aus der Workbench, über /v1/convert und über MLLP erscheinen hier.'))); return; }
+  main.append(h('div', { class: 'pb' }, h('table', { class: 'kz' }, h('thead', {}, h('tr', {}, ['Kanal', 'Quelle', 'Läufe', 'In Ordnung', 'Zu prüfen', 'Fehler', 'Median ms', 'p95 ms', 'Letzter Lauf', 'Häufigste Befunde'].map((x, i) => h('th', { class: i > 1 && i < 8 ? 'n' : '' }, x)))),
+    h('tbody', {}, g.map(r => h('tr', {}, h('td', {}, r.kanal), h('td', {}, r.quelle || '–'), h('td', { class: 'n' }, String(r.laeufe)), n(r.ok), n(r.pruefen, 'pruefen'), n(r.fehler, 'fehler'),
+      h('td', { class: 'n' }, String(r.dauer_median_ms)), h('td', { class: 'n' }, String(r.dauer_p95_ms)), h('td', {}, zeit(r.letzter)),
+      h('td', { class: 'mono' }, r.codes.map(([c, m]) => c + ' ×' + m).join(', ') || '–')))))));
+}
+
 function drawMain() {
   const main = document.getElementById('main'); const keep = [...main.querySelectorAll('.pb')].map(e => e.scrollTop);
   main.replaceChildren();
+  document.getElementById('betrieb').setAttribute('aria-pressed', String(!!S.betrieb));
+  if (S.betrieb) { drawBetrieb(main); return; }
   const f = S.sel && find(S.sel);
   if (!f || !S.task) { main.append(h('div', { class: 'empty' }, h('div', {}, h('b', {}, f ? 'Lädt …' : 'Aufgabe wählen'), f ? '' : (darf('bearbeiten') ? 'Links ein Projekt anlegen, darunter Ordner und Aufgaben. ' : '') + 'Eine Aufgabe öffnet Quelle, Zuordnung und FHIR-Ausgabe nebeneinander.'))); return; }
   const L = S.lauf, st = { ok: 'In Ordnung', pruefen: 'Zu prüfen', fehler: 'Fehler' };
@@ -559,6 +587,7 @@ function drawMain() {
 document.getElementById('addroot').append(icon('plus'));
 document.getElementById('addroot').onclick = () => addNode(null, 'ordner');
 api('GET', 'zustellung').then(z => { S.zustellung = z; }).catch(() => {});
+document.getElementById('betrieb').addEventListener('click', () => betrieb());
 api('GET', 'ich').then(i => { S.ich = i; drawWer(); return api('GET', 'baum'); })
   .then(t => { S.vorlagen = t.vorlagen; S.tree = { kinder: t.kinder }; drawTree(); drawMain(); }).catch(e => { console.error(e); toast(e.message); });
 </script>

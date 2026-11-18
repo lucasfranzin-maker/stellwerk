@@ -368,6 +368,11 @@ def create_app(cfg: dict, store: Store | None = None, oidc=None) -> FastAPI:
     def laeufe(limit: int = 200, aufgabe: str | None = None):
         return {"laeufe": store.runs(min(max(limit, 1), 1000), aufgabe)}
 
+    @app.get("/api/kennzahlen")
+    def kennzahlen(stunden: int = 24):
+        """Läufe, Status und Dauer je Kanal und Quelle (aus dem Laufprotokoll, ohne Patientendaten)."""
+        return store.kennzahlen(min(max(stunden, 1), 24 * 90))
+
     @app.get("/api/audit")
     def audit(limit: int = 200):
         return {"eintraege": store.audit_log(min(max(limit, 1), 1000))}

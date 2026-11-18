@@ -6,7 +6,7 @@ Das Schema wird mit Alembic verwaltet (stellwerk/migrations); beim Start wird es
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from importlib import resources
 from pathlib import Path
 
@@ -205,6 +205,35 @@ class Store:
             return [{"id": r.id, "zeit": r.zeit.isoformat(), "kanal": r.kanal, "aufgabe_id": r.aufgabe_id, "quelle": r.quelle,
                      "art": r.art, "status": r.status, "fehler": r.fehler, "pruefen": r.pruefen, "dauer_ms": r.dauer_ms,
                      "codes": r.codes} for r in s.scalars(q)]
+
+    def kennzahlen(self, stunden: int = 24, jetzt: datetime | None = None) -> dict:
+        """Kennzahlen je Kanal und Quelle aus dem Laufprotokoll der letzten `stunden` Stunden. Enthält keine Patientendaten."""
+        jetzt = jetzt or _now()
+        von = jetzt - timedelta(hours=stunden)
+        with self.session() as s:
+            zeilen = list(s.scalars(select(Run).where(Run.zeit >= von).order_by(Run.id.desc()).limit(50000)))
+        gruppen: dict[tuple[str, str], list] = {}
+        for r in zeilen:
+            gruppen.setdefault((r.kanal, r.quelle), []).append(r)
+
+        def perzentil(werte: list[int], p: float) -> int:
+            w = sorted(werte)
+            return w[min(len(w) - 1, int(round(p * (len(w) - 1))))] if w else 0
+
+        out = []
+        for (kanal, quelle), rs in sorted(gruppen.items()):
+            codes: dict[str, int] = {}
+            for r in rs:
+                for c in r.codes or []:
+                    codes[c] = codes.get(c, 0) + 1
+            d = [r.dauer_ms for r in rs]
+            letzter = max(r.zeit for r in rs)
+            out.append({"kanal": kanal, "quelle": quelle, "laeufe": len(rs), "ok": sum(r.status == "ok" for r in rs),
+                        "pruefen": sum(r.status == "pruefen" for r in rs), "fehler": sum(r.status == "fehler" for r in rs),
+                        "dauer_median_ms": perzentil(d, 0.5), "dauer_p95_ms": perzentil(d, 0.95), "letzter": letzter.isoformat(),
+                        "codes": sorted(codes.items(), key=lambda x: (-x[1], x[0]))[:5]})
+        return {"stunden": stunden, "seit": von.isoformat(), "gruppen": out,
+                "gesamt": {"laeufe": len(zeilen), "fehler": sum(r.status == "fehler" for r in zeilen), "pruefen": sum(r.status == "pruefen" for r in zeilen)}}
 
     # --- Erschließung
     def decisions(self, db: str) -> dict:

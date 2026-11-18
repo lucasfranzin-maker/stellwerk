@@ -86,3 +86,10 @@ Ein Arbeitsbereich aus Version 0.1 (`baum.json`, `aufgaben/`) wird beim ersten S
 | `GET /api/laeufe` | Laufprotokoll ohne Patientendaten: Kanal, Quelle, Status, Dauer, Befundcodes |
 | `GET /api/audit` | Wer hat was geändert, mit dem Namen aus der Anmeldung (Rolle `verwalten`) |
 | `GET /api/openapi.json` | Beschreibung der Schnittstelle |
+
+## Betrieb beobachten
+
+In der Workbench zeigt „Betrieb“ (links unten) je Kanal und Quelle die Läufe der letzten 24 Stunden, 7 oder 30 Tage: Zahl der Läufe, in
+Ordnung, zu prüfen, Fehler, Median und 95. Perzentil der Dauer, letzter Lauf und die häufigsten Befundcodes. Dieselben Zahlen liefert
+`GET /api/kennzahlen?stunden=…` (Rolle `lesen`). Es sind nur Läufe von Stellwerk selbst (Workbench, `/v1/convert`, MLLP); die Kanäle in
+BridgeLink beobachtet man im Dashboard von BridgeLink. Schwellen und Benachrichtigungen gibt es noch nicht.
