@@ -389,6 +389,10 @@ function fieldTable() {
       const lo = h('input', { class: 'in', style: 'width:84px;flex:none', value: cur.loinc || '', placeholder: 'LOINC', 'aria-label': 'LOINC-Code für ' + c.name, disabled: !r, onchange: () => setRule(c.name, { ...r, loinc: lo.value.trim(), anzeige: lo.value.trim() === r.loinc ? r.anzeige : '' }) });
       const hatEinheit = L.spalten.some(x => (x.regel || {}).ziel === 'obs.einheit' && x.regel.fuer === c.name);
       par.append(lo); if (r && !hatEinheit) { const eh = h('input', { class: 'in', style: 'min-width:0', value: r.einheit || '', placeholder: 'Einheit fest', 'aria-label': 'Feste Einheit für ' + c.name, onchange: () => setRule(c.name, { ...r, einheit: eh.value.trim() }) }); par.append(eh); }
+    } else if (cur.ziel === 'obs.code') {
+      const n = Object.keys((r || {}).codes || {}).length;
+      par.append(h('button', { class: 'btn sm', disabled: !r, 'aria-expanded': String(S.codeOffen === c.name), onclick: () => { S.codeOffen = S.codeOffen === c.name ? null : c.name; drawMain(); } },
+        'Codetabelle (' + n + ')'));
     } else if (cur.ziel === 'obs.einheit') {
       const fs = h('select', { class: 'in', 'aria-label': 'Einheit gehört zu', disabled: !r, onchange: () => setRule(c.name, { ...r, fuer: fs.value }) }, h('option', { value: '' }, 'gehört zu …'), L.spalten.filter(x => ((x.regel || x.vorschlag || {}).ziel === 'obs.wert')).map(x => h('option', { value: x.name, selected: cur.fuer === x.name }, x.name)));
       par.append(fs);
@@ -399,6 +403,14 @@ function fieldTable() {
       h('button', { class: 'btn sm', 'aria-label': 'Vorschlag ablehnen', title: 'Vorschlag ablehnen', onclick: () => { t.felder = { ...fd, abgelehnt: [...fd.abgelehnt, c.name] }; run(); } }, icon('x')));
     else if (r) act.append(h('button', { class: 'btn sm', 'aria-label': 'Zuordnung entfernen', title: 'Zuordnung entfernen', onclick: () => setRule(c.name, null) }, icon('x')));
     tb.append(h('tr', { class: (v ? 'ai' : '') + (S.col === c.name ? ' cur' : ''), 'data-col': c.name }, h('td', {}, h('div', { class: 'col' }, c.name), h('div', { class: 'smp' }, c.beispiele.join(', ') || 'leer')), h('td', { class: 'rt ' + (r ? (r.ziel === 'ignorieren' ? 'off' : 'set') : v ? 'prop' : 'open'), 'aria-hidden': 'true' }), h('td', {}, zsel), h('td', {}, par), h('td', {}, h('div', { class: 'row', style: 'gap:6px;flex-wrap:nowrap;justify-content:space-between;align-items:center' }, tag, act))));
+    if (r && r.ziel === 'obs.code' && S.codeOffen === c.name) {
+      const zeilen = Object.entries(r.codes || {}).map(([k, e]) => [k, e.loinc || '', e.anzeige || '', e.einheit || ''].join(';')).join('\n');
+      const ta = h('textarea', { class: 'in mono', rows: 8, style: 'width:100%;resize:vertical', 'aria-label': 'Codetabelle für ' + c.name, spellcheck: 'false' }, zeilen);
+      const speichern = () => { const codes = {}; ta.value.split(/\r?\n/).forEach(l => { const [k, loinc, anzeige, einheit] = l.split(/[;\t]/).map(x => (x || '').trim()); if (k) codes[k] = { loinc: loinc || '', anzeige: anzeige || '', einheit: einheit || '' }; }); setRule(c.name, { ...r, codes }); };
+      tb.append(h('tr', { class: 'why' }, h('td', { colSpan: 5 },
+        h('div', { class: 'mut', style: 'margin-bottom:6px' }, 'Eine Zeile je Analysecode: Code;LOINC;Anzeige;feste Einheit (Anzeige und Einheit können leer sein). Aus Excel einfügen geht auch. Codes, die hier fehlen, erzeugen keine Observation und werden gemeldet.'),
+        ta, h('div', { style: 'margin-top:6px' }, h('button', { class: 'btn sm pri', onclick: speichern }, 'Codetabelle übernehmen')))));
+    }
     if (v) tb.append(h('tr', { class: 'ai why' }, h('td', { colSpan: 5 }, v.begruendung)));
     else if (r && r.ziel === 'obs.wert' && r.anzeige) tb.append(h('tr', { class: 'why' }, h('td', { colSpan: 5 }, r.anzeige)));
   });

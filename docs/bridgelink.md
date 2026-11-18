@@ -187,6 +187,10 @@ SFTP-Eingang gegen einen Testserver (asyncssh, ECDSA-Schlüssel, Passwort): Date
 **Nicht getestet:** das Dienst-Token im Kanal gegen einen Stellwerk mit OIDC-Anmeldung (nur die Erzeugung und der Dienst-Token-Pfad
 einzeln), https zwischen BridgeLink und Stellwerk, PDF-Dateien und Dateien über 10 MB, Windows-Pfade, SFTP gegen einen echten OpenSSH-Server.
 
+**Zeilenform**, gegen BridgeLink 26.9.0 mit SQLite: 6 Zeilen (zwei Zeilen eines Auftrags, Komma-Dezimal, Text `<0,6`, unbekannter Code, leerer
+Wert, leerer Code): jedes gelieferte Bundle gleich dem der Python-Pipeline, Textwert in der Prüfablage, `CODE_LEER` und `KEIN_MESSWERT`
+als Grund. Nicht getestet: PostgreSQL, MSSQL, Oracle mit Zeilenform; Codetabellen mit mehreren hundert Einträgen.
+
 Automatische Tests (`tests/test_schnittstelle.py`, ohne BridgeLink): Kanal-XML, gültiges JavaScript der drei Skripte, Prüfungen,
 JDBC-Adressen und **jeder Testfall des Übergabepakets** durch dieselbe Datei `kanal_bauen.js`, die im Kanal läuft.
 Der Test gegen einen echten BridgeLink ist nicht automatisiert; er braucht einen laufenden Server mit Zugriff auf Quelle und Ablage.
@@ -211,8 +215,11 @@ LOB-Spalten, mehrere BridgeLink-Knoten, TLS zur Datenbank.
 - Die Abfrage wird als Unterabfrage verwendet: kein Fragezeichen darin, bei SQL Server kein `ORDER BY`.
 - Der Stand liegt in einer Datei auf dem BridgeLink-Server, nicht in der Datenbank von BridgeLink. Ein Cluster teilt sie nicht.
 - Das Datenbankpasswort steht im Kanal. Eigenes Konto mit Leserecht auf die Abfrage verwenden.
-- Der Kanal mit Database Reader bildet nur die breite Tabelle ab (eine Zeile je Befund). Laborwerte in Zeilenform und Textspalten
-  mit Dokumenten brauchen die Leselogik von Stellwerk und haben noch keinen Kanal. Dateien im Ordner siehe oben.
+- Der Kanal mit Database Reader baut Bundles aus Tabellen mit Messwerten, in breiter Form (eine Spalte je Messgröße) und in
+  Zeilenform (Analysecode + Codetabelle, siehe [uebergabe.md](uebergabe.md)). Bei Zeilenform steht ein unbekannter oder leerer
+  Analysecode als Grund `CODE_UNBEKANNT` oder `CODE_LEER` in der Nachrichtenliste; die Zeile erzeugt kein Bundle. Textspalten mit
+  Dokumenten brauchen die Leselogik von Stellwerk und haben noch keinen Kanal (Dateien im Ordner siehe oben).
+- Die Codetabelle steht im Kanal. Ändert sie sich, den Kanal erneut einrichten.
 
 **Kanal-Eingang („Stellwerk FHIR-Eingang“)**
 

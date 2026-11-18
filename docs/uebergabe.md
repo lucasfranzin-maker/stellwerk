@@ -50,6 +50,9 @@ Patientennummer, Zeile ohne Messwert, Winter- und Sommerzeit. `erwartet.json` mi
 Vorschläge, die niemand angenommen hat, stehen als „Vorschlag, nicht angenommen“ in der Zuordnung und in keinem erwarteten Bundle.
 Hat die Zuordnung noch Fehler, gibt es kein Paket.
 
+**Zeilenform.** Bei Aufgaben mit Analysecode enthält das Paket zusätzlich die Codetabelle (in `LIESMICH.md` und als `codes` an der
+Codespalte in `zuordnung.json`) und den Testfall `07-code-nicht-in-der-tabelle`. Die Regeln beschreiben, wie der Code nachzuschlagen ist.
+
 ## Inhalt des Pakets: Dokumente
 
 Lesen, Zeichensatz reparieren und Abschnitte zuordnen bleibt bei Stellwerk; das kann kein Kanal-Skript.
@@ -88,8 +91,12 @@ Verlorene Nachkommastellen (`1.1` statt `1.10`) sind eine Abweichung.
 
 - **Cloverleaf und Mirth: kein fertiger Thread oder Kanal.** Das Paket ist neutral; die Umsetzung dort ist Handarbeit nach den Regeln.
   Für BridgeLink gibt es den erzeugten Kanal. Für Cloverleaf braucht es ein Beispiel aus einer echten Site.
-- **Nur breite Tabellen.** Das Feld-Mapping erwartet je Messgröße eine Spalte. Liegen Laborwerte zeilenweise vor
-  (eine Zeile je Analyt mit Code, Wert, Einheit), muss die Abfrage sie heute selbst in Spalten bringen.
+- **Zeilenform braucht eine Codetabelle, die Sie pflegen.** Liegen Laborwerte zeilenweise vor (eine Zeile je Ergebnis mit
+  Analysecode, Wert, Einheit), der Spalte mit dem Code das Ziel „Analysecode“ geben und die Codetabelle füllen (lokaler Code,
+  LOINC, Anzeige, feste Einheit). Stellwerk schlägt dafür keine LOINC-Codes vor und rät keinen. Codes, die in der Tabelle fehlen,
+  erzeugen keine Observation und stehen als Prüfpunkt im Bericht. Genau eine Wertspalte, höchstens eine Einheitenspalte. Pro
+  Zeile entsteht ein eigenes Bundle (Patient und eine Observation); mehrere Zeilen eines Auftrags werden also einzeln zugestellt
+  und über `Auftragsnummer-LOINC` wieder zusammengeführt.
 - Vorschläge für Abfragen nur an SQLite getestet. Bezeichner werden nach SQL-Standard geschützt; Eigenheiten von Oracle
   oder MSSQL (Schema-Präfix, Groß- und Kleinschreibung) sind nicht geprüft.
 - Die Stichprobe für vermutete Beziehungen umfasst 200 Zeilen je Tabelle.

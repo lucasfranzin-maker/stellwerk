@@ -41,8 +41,13 @@ function bundle(row) {
   if (geb) pat.birthDate = geb;
   const entry = [{ fullUrl: patUrl, resource: pat, request: { method: 'POST', url: 'Patient', ifNoneExist: 'identifier=' + encodeURIComponent(ns.patient + '|' + pid) } }];
   const zeit = datum(cell(row, one('obs.zeit'))), fall = cell(row, one('fall.id')), auftrag = cell(row, one('auftrag.id'));
-  for (const w of cols('obs.wert')) {
-    const raw = cell(row, w.spalte);
+  let messungen = cols('obs.wert');
+  if (one('obs.code')) {                                                                     // Zeilenform (Regel 5)
+    const code = cell(row, one('obs.code')), e = cols('obs.code')[0].codes.find(x => x.code === code);
+    messungen = e ? [{ spalte: code, wertspalte: messungen[0].spalte, loinc: e.loinc, anzeige: e.anzeige, einheit_spalte: messungen[0].einheit_spalte, einheit_fest: e.einheit_fest }] : [];
+  }
+  for (const w of messungen) {
+    const raw = cell(row, w.wertspalte || w.spalte);
     if (!raw) continue;
     const coding = { system: 'http://loinc.org', code: w.loinc };
     if (w.anzeige) coding.display = w.anzeige;

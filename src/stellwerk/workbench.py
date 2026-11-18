@@ -129,9 +129,18 @@ class Workspace:
             raise ApiError(400, "modus muss dokument oder felder sein.")
         fd = t["felder"] or {}
         keys = {k for k, _, _ in fieldmap.ZIELE}
+        def regel(r: dict) -> dict:
+            out = {k: str(v)[:200] for k, v in r.items() if k in ("ziel", "loinc", "anzeige", "fuer", "einheit")}
+            if r.get("ziel") == "obs.code":
+                codes = r.get("codes") if isinstance(r.get("codes"), dict) else {}
+                if len(codes) > 2000:
+                    raise ApiError(400, "Die Codetabelle hat höchstens 2000 Einträge.")
+                out["codes"] = {str(k).strip()[:120]: {f: str(v.get(f) or "").strip()[:200] for f in ("loinc", "anzeige", "einheit")}
+                                for k, v in codes.items() if str(k).strip() and isinstance(v, dict)}
+            return out
+
         t["felder"] = {
-            "regeln": {str(c)[:120]: {k: str(v)[:200] for k, v in r.items() if k in ("ziel", "loinc", "anzeige", "fuer", "einheit")}
-                       for c, r in (fd.get("regeln") or {}).items() if isinstance(r, dict) and r.get("ziel") in keys},
+            "regeln": {str(c)[:120]: regel(r) for c, r in (fd.get("regeln") or {}).items() if isinstance(r, dict) and r.get("ziel") in keys},
             "abgelehnt": [str(c)[:120] for c in fd.get("abgelehnt") or []],
             "status": str(fd.get("status") or "")}
         t["kanal"] = clean_kanal(t["kanal"])

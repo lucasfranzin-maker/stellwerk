@@ -3,7 +3,7 @@
 Aus einer Aufgabe mit Feld-Mapping (Datenbank -> Patient, Observation) entsteht ein fertiger Kanal:
 
   Database Reader   liest die Abfrage der Aufgabe, nur neue Zeilen (Fortschrittsmarke), Obergrenze je Lauf
-       |            Zeilen ohne Patientennummer oder ohne Messwert werden abgewiesen, mit Grund in der Nachrichtenliste
+       |            Zeilen ohne Patientennummer, ohne Messwert oder mit unbekanntem Analysecode werden abgewiesen, mit Grund in der Nachrichtenliste
   Filter + Skript   baut das Bundle nach den Regeln des Übergabepakets (kanal_bauen.js, dieselbe Datei wie in den Tests)
        |
        +-- ok ------------> FHIR-Ziel (Warteschlange, Wiederholung jede Minute)
@@ -262,7 +262,7 @@ def _felder_kanal(ws: Workspace, tid: str, cfg: dict, version: str) -> Kanal:
     paket = uebergabe._felder(ws, t, cfg, name, False)           # wirft 409, wenn die Zuordnung Fehler hat
     Z = json.loads(paket["zuordnung.json"])
     z_klein = {"ziel": Z["ziel"], "geschlecht_codes": Z["geschlecht_codes"],
-               "spalten": [{k: s[k] for k in ("spalte", "stand", "ziel", "loinc", "anzeige", "einheit_spalte", "einheit_fest")}
+               "spalten": [{k: s[k] for k in ("spalte", "stand", "ziel", "loinc", "anzeige", "einheit_spalte", "einheit_fest", "codes") if k in s}
                            for s in Z["spalten"]]}
     k = (cfg.get("bridgelink") or {}).get("kanal") or {}
     slug = re.sub(r"[^A-Za-z0-9_-]+", "-", name).strip("-") or "schnittstelle"
