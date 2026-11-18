@@ -21,7 +21,7 @@ Stand 15.11.2026, Version 0.3. „Getestet“ heißt: automatische Tests mit erf
 
 Vorgezogen (Entscheidung vom 14.11.2026): **Übergabe an den Kommunikationsserver.**
 a) ~~Übergabepaket je Aufgabe, neutral~~ (erledigt), b) ~~BridgeLink-Kanal je Schnittstelle daraus erzeugen~~ (erledigt für Feld-Mapping aus Datenbanken und für Dokumente aus einem Ordner),
-c) weitere Eingänge: SFTP, FHIR (Ordner ist über den Kanal abgedeckt), d) Cloverleaf-Export, sobald ein Beispiel vorliegt. Danach weiter mit:
+c) ~~Eingänge Ordner und SFTP~~ (erledigt über den Dokument-Kanal), FHIR-Eingang (offen, Anforderung unklar), d) Cloverleaf-Export, sobald ein Beispiel vorliegt. Danach weiter mit:
 
 2. ~~**Anmeldung und Härtung:** OIDC, Rollen, Sitzungen, Sicherheits-Header, Audit-Protokoll.~~ Erledigt in 0.3, siehe [anmeldung.md](anmeldung.md).
 3. **React-Oberfläche** im bestehenden Erscheinungsbild, zuerst Workbench und Erschließung.

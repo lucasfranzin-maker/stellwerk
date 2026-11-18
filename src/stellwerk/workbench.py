@@ -21,7 +21,8 @@ from .textrepair import decode_bytes
 _ID = re.compile(r"^[a-z0-9]{6,32}$")
 _META = ("patient_id", "encounter_id", "doc_id", "doc_date", "author", "title", "family", "given", "birth_date")
 KANAL_VORGABE = {"intervall": 60, "neu_spalte": "", "neu_art": "zahl", "vollabfrage": False, "start": "", "max_zeilen": 5000,
-                 "zustellen": [], "jdbc_url": "", "eingang_ordner": "", "dateimuster": "*"}
+                 "zustellen": [], "jdbc_url": "", "eingang_ordner": "", "dateimuster": "*", "eingang_art": "ordner", "sftp_host": "",
+                 "sftp_benutzer": "", "sftp_passwort_env": "", "sftp_known_hosts": ""}
 VORGABE = {"art": "datei", "vorlage": "", "meta": {}, "aliase": {}, "db": "", "abfrage": "", "dokument": 0, "ablage": "",
            "modus": "dokument", "felder": {"regeln": {}, "abgelehnt": [], "status": ""}, "kanal": KANAL_VORGABE}
 
@@ -55,7 +56,21 @@ def clean_kanal(k) -> dict:
     muster = str(k["dateimuster"] or "*").strip()
     if len(muster) > 100 or re.search(r"[\\/\x00-\x1f]|\$\{", muster):
         raise ApiError(400, "Das Dateimuster ist ein Name mit * und ? (zum Beispiel *.pdf), ohne Pfad.")
-    return {"intervall": intervall, "eingang_ordner": ordner, "dateimuster": muster, "neu_spalte": spalte, "neu_art": k["neu_art"], "vollabfrage": bool(k["vollabfrage"]), "start": start,
+    art = str(k["eingang_art"] or "ordner")
+    if art not in ("ordner", "sftp"):
+        raise ApiError(400, "Der Eingang ist ein Ordner oder ein SFTP-Server.")
+    sftp = {f: str(k[f] or "").strip() for f in ("sftp_host", "sftp_benutzer", "sftp_passwort_env", "sftp_known_hosts")}
+    if sftp["sftp_host"] and not re.match(r"^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:\d{1,5})?$", sftp["sftp_host"]):
+        raise ApiError(400, "Der SFTP-Server ist ein Rechnername, optional mit :Port.")
+    if sftp["sftp_benutzer"] and re.search(r"[\x00-\x1f${}]", sftp["sftp_benutzer"]):
+        raise ApiError(400, "Der SFTP-Benutzer enthält unzulässige Zeichen.")
+    if sftp["sftp_passwort_env"] and not re.match(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$", sftp["sftp_passwort_env"]):
+        raise ApiError(400, "Das Passwort steht nicht in der Datei, sondern in einer Umgebungsvariable; hier nur deren Name eintragen.")
+    if sftp["sftp_known_hosts"] and re.search(r"[\x00-\x1f]|\$\{", sftp["sftp_known_hosts"]):
+        raise ApiError(400, "Der Pfad zu known_hosts enthält unzulässige Zeichen.")
+    if art == "sftp" and ordner and not ordner.startswith("/"):
+        raise ApiError(400, "Der Ordner auf dem SFTP-Server ist ein absoluter Pfad mit /.")
+    return {"intervall": intervall, "eingang_ordner": ordner, "eingang_art": art, **sftp, "dateimuster": muster, "neu_spalte": spalte, "neu_art": k["neu_art"], "vollabfrage": bool(k["vollabfrage"]), "start": start,
             "max_zeilen": max_zeilen, "zustellen": [c for c in dict.fromkeys(k["zustellen"] or []) if c in ("TEXTWERT", "GESCHLECHT", "DATUM")],
             "jdbc_url": jdbc}
 

@@ -115,6 +115,11 @@ und das Dateimuster eintragen, oder `stellwerk schnittstelle <aufgabe> --einrich
 Umgebungsvariable `STELLWERK_DIENST_TOKEN` (siehe [anmeldung.md](anmeldung.md)). Name der Datei, Vorlage und feste Angaben aus der
 Aufgabe (Patientennummer, Autor, Titel) gehen als Parameter mit.
 
+- **SFTP statt Ordner.** Bei der Aufgabe „SFTP-Server“ wählen: Rechner (mit Port), Benutzer, Ordner auf dem Server, der Name der
+  Umgebungsvariable mit dem Passwort (das Passwort selbst steht nicht in der Aufgabe) und der Pfad zu einer `known_hosts`-Datei auf dem
+  BridgeLink-Server. Der Schlüssel des Servers wird dagegen geprüft (`StrictHostKeyChecking`); ohne diese Datei richtet Stellwerk den
+  Kanal nicht ein. Nur Anmeldung mit Passwort, kein Schlüsselpaar. Das Passwort steht im Kanal. `verarbeitet` und `fehler` liegen im
+  Ordner auf dem Server.
 - **Ablehnung.** Antwortet Stellwerk mit 400, 413, 415 oder 422 (Datei nicht lesbar, Fehler im Bundle, zu groß), setzt der Kanal die
   Nachricht auf ERROR und legt das Original als `<pruefablage>/<aufgabe>/abgelehnt/<Nachrichten-ID>.<Endung>` mit
   `.abgelehnt.txt` ab. Der Dateiname der Quelle wird nicht übernommen (er kann einen Patientennamen enthalten). Ist Stellwerk
@@ -124,8 +129,8 @@ Aufgabe (Patientennummer, Autor, Titel) gehen als Parameter mit.
 - Der Kanal enthält das Dienst-Token. Wie das Datenbankpasswort wird er nie über die HTTP-Schnittstelle ausgeliefert.
 - Der Kanal liefert an `/v1/convert`; Stellwerk antwortet 200, auch wenn das Bundle Prüfpunkte hat. Was dann mit dem Bundle
   geschieht, steht in `zustellung.bei_pruefen`.
-- Nicht enthalten: MLLP-Empfang (dafür `stellwerk mllp` oder ein eigener Kanal), Unterordner, andere Quellen als ein lokaler oder
-  eingehängter Ordner (SFTP, SMB: siehe die Reader von BridgeLink; der Kanal lässt sich dort von Hand ändern).
+- Nicht enthalten: MLLP-Empfang (dafür `stellwerk mllp` oder ein eigener Kanal), Unterordner, andere Quellen als ein Ordner oder SFTP
+  (SMB, FTP, S3: siehe die Reader von BridgeLink; der Kanal lässt sich dort von Hand ändern), Anmeldung am SFTP-Server mit Schlüssel.
 
 ## Routing-Merkmale
 
@@ -178,8 +183,9 @@ Jedes gelieferte Bundle wurde mit dem verglichen, das die Python-Pipeline aus de
 HL7-Datei im Eingangsordner wird gelesen, nach `verarbeitet` verschoben, von Stellwerk umgewandelt und als Bundle (`document`) am
 CDR abgeliefert; CDR antwortet 422: Nachricht ERROR, Original unverändert in `abgelehnt/` (Dateivergleich), kein Dateiname übernommen;
 Stellwerk aus: Nachricht QUEUED, nach dem Start zugestellt; Dateimuster lässt andere Dateien liegen.
+SFTP-Eingang gegen einen Testserver (asyncssh, ECDSA-Schlüssel, Passwort): Datei wird gelesen, verschoben und als Bundle zugestellt; falscher Serverschlüssel in `known_hosts`: Datei bleibt liegen, nach Korrektur der Datei wird sie gelesen.
 **Nicht getestet:** das Dienst-Token im Kanal gegen einen Stellwerk mit OIDC-Anmeldung (nur die Erzeugung und der Dienst-Token-Pfad
-einzeln), https zwischen BridgeLink und Stellwerk, PDF-Dateien und Dateien über 10 MB, Windows-Pfade.
+einzeln), https zwischen BridgeLink und Stellwerk, PDF-Dateien und Dateien über 10 MB, Windows-Pfade, SFTP gegen einen echten OpenSSH-Server.
 
 Automatische Tests (`tests/test_schnittstelle.py`, ohne BridgeLink): Kanal-XML, gültiges JavaScript der drei Skripte, Prüfungen,
 JDBC-Adressen und **jeder Testfall des Übergabepakets** durch dieselbe Datei `kanal_bauen.js`, die im Kanal läuft.

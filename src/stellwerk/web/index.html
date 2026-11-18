@@ -456,9 +456,17 @@ function dokKanalBlock() {
   const ordner = h('input', { class: 'in mono', value: K().eingang_ordner, placeholder: '/daten/eingang/arztbriefe', onchange: () => aendern('eingang_ordner', ordner.value.trim()) });
   const muster = h('input', { class: 'in mono', value: K().dateimuster, placeholder: '*.pdf', onchange: () => aendern('dateimuster', muster.value.trim() || '*') });
   const takt = h('input', { class: 'in', type: 'number', min: 5, max: 86400, value: K().intervall, onchange: () => aendern('intervall', parseInt(takt.value, 10) || K().intervall) });
+  const art = h('select', { class: 'in', onchange: () => aendern('eingang_art', art.value) },
+    [['ordner', 'Ordner auf dem BridgeLink-Server'], ['sftp', 'SFTP-Server']].map(([k, l]) => h('option', { value: k, selected: K().eingang_art === k }, l)));
+  const txt = (f, ph, mono) => { const i = h('input', { class: 'in' + (mono ? ' mono' : ''), value: K()[f], placeholder: ph, onchange: () => aendern(f, i.value.trim()) }); return i; };
+  const sftp = K().eingang_art === 'sftp' ? h('div', { style: 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 10px;align-items:end' },
+    feld('SFTP-Server (Rechner:Port)', txt('sftp_host', 'sftp.haus:22', true)), feld('Benutzer', txt('sftp_benutzer', '')),
+    feld('Umgebungsvariable mit dem Passwort', txt('sftp_passwort_env', 'SFTP_PASSWORT', true)),
+    h('div', { style: 'grid-column:1/4' }, feld('known_hosts auf dem BridgeLink-Server (Prüfung des Serverschlüssels)', txt('sftp_known_hosts', '/opt/bridgelink/appdata/known_hosts', true)))) : null;
   return h('div', { class: 'pad', style: 'border-top:1px solid var(--line)' }, h('div', { class: 'f' }, 'Schnittstelle in BridgeLink'),
     h('p', { class: 'mut', style: 'margin:3px 0 10px' }, 'Fertiger Kanal: liest Dokumente aus einem Ordner auf dem BridgeLink-Server, schickt sie unverändert an Stellwerk und bekommt die Antwort. Stellwerk wandelt um und stellt dem CDR zu. Abgelehnte Dokumente liegen mit Hinweis in der Ablage.'),
-    h('div', { style: 'display:grid;grid-template-columns:2fr 1fr 1fr;gap:0 10px;align-items:end' }, feld('Eingangsordner auf dem BridgeLink-Server', ordner), feld('Dateimuster', muster), feld('Intervall in s', takt)),
+    feld('Eingang', art), sftp,
+    h('div', { style: 'display:grid;grid-template-columns:2fr 1fr 1fr;gap:0 10px;align-items:end' }, feld(K().eingang_art === 'sftp' ? 'Ordner auf dem SFTP-Server' : 'Eingangsordner auf dem BridgeLink-Server', ordner), feld('Dateimuster', muster), feld('Intervall in s', takt)),
     h('div', { class: 'row' },
       h('button', { class: 'btn', disabled: S.busy, onclick: kanalPruefen }, 'Prüfen'),
       h('button', { class: 'btn pri', disabled: S.busy || !Z.bridgelink, title: Z.bridgelink ? '' : 'bridgelink.api ist nicht eingerichtet', onclick: kanalEinrichten }, icon('send'), 'In BridgeLink einrichten')),

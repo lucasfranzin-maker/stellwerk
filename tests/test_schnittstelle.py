@@ -537,3 +537,34 @@ def test_dokument_skripte_sind_gueltiges_javascript(dok, tmp_path):
     f = tmp_path / "s.js"
     f.write_text("(function () {\n" + text + "\n});\n", encoding="utf-8")
     assert subprocess.run([NODE, "--check", str(f)], capture_output=True, text=True).returncode == 0
+
+
+def test_dokument_kanal_mit_sftp_eingang(dok, monkeypatch):
+    ws, cfg = dok
+    sftp = {"eingang_art": "sftp", "sftp_host": "sftp.haus:2222", "sftp_benutzer": "dokumente", "sftp_passwort_env": "SFTP_PW",
+            "sftp_known_hosts": "/opt/bl/known_hosts", "eingang_ordner": "/eingang", "dateimuster": "*.pdf"}
+    ws.save_task("task000001", {"art": "datei", "kanal": sftp})
+    monkeypatch.delenv("SFTP_PW", raising=False)
+    with pytest.raises(ApiError, match="SFTP_PW"):
+        schnittstelle.felder_oder_dokument_kanal(ws, "task000001", cfg)
+    monkeypatch.setenv("SFTP_PW", "geheim-test")
+    k = schnittstelle.felder_oder_dokument_kanal(ws, "task000001", cfg)
+    q = dok_teile(k.xml)[0]
+    assert q.findtext("scheme") == "SFTP" and q.findtext("host") == "sftp.haus:2222/eingang" and q.findtext("username") == "dokumente"
+    assert q.findtext("password") == "geheim-test" and q.findtext("anonymous") == "false"
+    sp = q.find("schemeProperties")
+    assert sp.get("class").endswith("SftpSchemeProperties") and sp.findtext("hostKeyChecking") == "yes" and sp.findtext("knownHostsFile") == "/opt/bl/known_hosts"
+    assert q.findtext("moveToDirectory") == "/eingang/verarbeitet" and any("SFTP-Passwort" in h for h in k.hinweise)
+    for fehlt in ("sftp_known_hosts", "sftp_host", "sftp_benutzer"):
+        ws.save_task("task000001", {"art": "datei", "kanal": {**sftp, fehlt: ""}})
+        with pytest.raises(ApiError, match="SFTP-Eingang fehlt"):
+            schnittstelle.felder_oder_dokument_kanal(ws, "task000001", cfg)
+
+
+def test_sftp_einstellungen_werden_geprueft():
+    ok = {"eingang_art": "sftp", "sftp_host": "sftp.haus", "eingang_ordner": "/eingang"}
+    assert clean_kanal(ok)["sftp_host"] == "sftp.haus"
+    for schlecht in ({"eingang_art": "ftp"}, {**ok, "sftp_host": "x y"}, {**ok, "sftp_host": "a/b"}, {**ok, "sftp_passwort_env": "geheim wort"},
+                     {**ok, "sftp_passwort_env": "pw=1"}, {**ok, "eingang_ordner": "eingang"}, {**ok, "sftp_benutzer": "a${b}"}):
+        with pytest.raises(ApiError):
+            clean_kanal(schlecht)

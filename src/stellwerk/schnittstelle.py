@@ -388,8 +388,18 @@ def dokument_kanal(ws: Workspace, tid: str, cfg: dict, version: str = "26.9.0") 
     ordner = (ke.get("eingang_ordner") or "").strip().rstrip("/\\")
     if not ordner:
         raise ApiError(409, "Für den Kanal fehlt der Eingangsordner: der Ordner auf dem BridgeLink-Server, in dem die Dokumente ankommen.")
+    sftp = ke["eingang_art"] == "sftp"
     k = (cfg.get("bridgelink") or {}).get("kanal") or {}
     adresse = _stellwerk_adresse(k)
+    kennwort = ""
+    if sftp:
+        fehlt = [n for f, n in (("sftp_host", "der SFTP-Server"), ("sftp_benutzer", "der Benutzer"), ("sftp_passwort_env", "der Name der Umgebungsvariable mit dem Passwort"),
+                                ("sftp_known_hosts", "known_hosts auf dem BridgeLink-Server (Prüfung des Serverschlüssels)")) if not ke[f]]
+        if fehlt:
+            raise ApiError(409, "Für den SFTP-Eingang fehlt: " + ", ".join(fehlt) + ".")
+        kennwort = os.environ.get(ke["sftp_passwort_env"], "")
+        if not kennwort:
+            raise bl.BridgeLinkError(f"Das Passwort für den SFTP-Eingang fehlt (Umgebungsvariable {ke['sftp_passwort_env']}).")
     a = cfg.get("anmeldung") or {}
     token = os.environ.get(a.get("dienst_token_env") or "", "")
     if a.get("art", "keine") != "keine" and len(token) < 32:
@@ -403,7 +413,17 @@ def dokument_kanal(ws: Workspace, tid: str, cfg: dict, version: str = "26.9.0") 
     if t["vorlage"]:
         params["vorlage"] = t["vorlage"]
     params.update({_QUERY[m]: w for m, w in t["meta"].items() if m in _QUERY})
-    sep = "\\" if re.match(r"^[A-Za-z]:\\|^\\\\", ordner) else "/"
+    sep = "\\" if not sftp and re.match(r"^[A-Za-z]:\\|^\\\\", ordner) else "/"
+    if sftp:
+        schema = ('<schemeProperties class="com.mirth.connect.connectors.file.SftpSchemeProperties" version="{v}"><passwordAuth>true</passwordAuth>'
+                  '<keyAuth>false</keyAuth><keyFile></keyFile><passPhrase></passPhrase><hostKeyChecking>yes</hostKeyChecking>'
+                  f'<knownHostsFile>{escape(ke["sftp_known_hosts"])}</knownHostsFile><configurationSettings/></schemeProperties>')
+        zugang = ('<scheme>SFTP</scheme>' + schema + f'<host>{escape(ke["sftp_host"] + ordner)}</host>')
+        login = f'<anonymous>false</anonymous><username>{escape(ke["sftp_benutzer"])}</username><password>{escape(kennwort)}</password>'
+    else:
+        zugang = f'<scheme>FILE</scheme><host>{escape(ordner)}</host>'
+        login = '<anonymous>true</anonymous><username>anonymous</username><password>anonymous</password>'
+
     source = (
         '<sourceConnector version="{v}"><metaDataId>0</metaDataId><name>sourceConnector</name>'
         '<properties class="com.mirth.connect.connectors.file.FileReceiverProperties" version="{v}"><pluginProperties/>'
@@ -411,9 +431,8 @@ def dokument_kanal(ws: Workspace, tid: str, cfg: dict, version: str = "26.9.0") 
         '<sourceConnectorProperties version="{v}"><responseVariable>None</responseVariable><respondAfterProcessing>true</respondAfterProcessing>'
         '<processBatch>false</processBatch><firstResponse>false</firstResponse><processingThreads>1</processingThreads>'
         f'{bl._resources()}<queueBufferSize>1000</queueBufferSize></sourceConnectorProperties>'
-        f'<scheme>FILE</scheme><host>{escape(ordner)}</host><fileFilter>{escape(ke["dateimuster"] or "*")}</fileFilter><regex>false</regex>'
-        '<directoryRecursion>false</directoryRecursion><ignoreDot>true</ignoreDot><anonymous>true</anonymous><username>anonymous</username>'
-        '<password>anonymous</password><timeout>10000</timeout><secure>true</secure><passive>true</passive><validateConnection>true</validateConnection>'
+        f'{zugang}<fileFilter>{escape(ke["dateimuster"] or "*")}</fileFilter><regex>false</regex>'
+        f'<directoryRecursion>false</directoryRecursion><ignoreDot>true</ignoreDot>{login}<timeout>10000</timeout><secure>true</secure><passive>true</passive><validateConnection>true</validateConnection>'
         f'<afterProcessingAction>MOVE</afterProcessingAction><moveToDirectory>{escape(ordner + sep + "verarbeitet")}</moveToDirectory>'
         '<moveToFileName>${UUID}_${originalFilename}</moveToFileName>'
         f'<errorReadingAction>MOVE</errorReadingAction><errorResponseAction>MOVE</errorResponseAction>'
@@ -431,12 +450,16 @@ def dokument_kanal(ws: Workspace, tid: str, cfg: dict, version: str = "26.9.0") 
                     "umwandelt und dem CDR zustellt. Von Stellwerk erzeugt; Änderungen hier werden bei erneutem Einrichten überschrieben.")
     xml = bl.kanal_xml(cid, f"Stellwerk {name}", beschreibung, source, dests, "", k, version)
 
-    hinweise = [f"Dokumente kommen in {ordner} an (Muster {ke['dateimuster'] or '*'}, ohne Unterordner). Gelesene Dokumente liegen danach in "
+    ort = f"{ordner} auf dem SFTP-Server {ke['sftp_host']}" if sftp else ordner
+    hinweise = [f"Dokumente kommen in {ort} an (Muster {ke['dateimuster'] or '*'}, ohne Unterordner). Gelesene Dokumente liegen danach in "
                 f"{ordner}{sep}verarbeitet, nicht lesbare in {ordner}{sep}fehler. Beides sind Patientendaten: bereinigen oder schützen.",
                 "Die Datei wird zur Umwandlung an Stellwerk geschickt. Stellwerk stellt das Bundle selbst zu (zustellung.ziel); der Kanal "
                 "bekommt nur die Antwort."]
     if not (cfg.get("zustellung") or {}).get("ziel"):
         hinweise.append("zustellung.ziel ist leer: Stellwerk legt die Bundles nur in seine Ausgabe, keines geht an ein CDR.")
+    if sftp:
+        hinweise.append(f"Der Kanal enthält das SFTP-Passwort. Der Schlüssel des Servers wird gegen {ke['sftp_known_hosts']} auf dem BridgeLink-Server "
+                        "geprüft (StrictHostKeyChecking); ändert sich der Schlüssel, liest der Kanal nicht mehr, bis die Datei angepasst ist.")
     if token:
         hinweise.append("Der Kanal enthält das Dienst-Token von Stellwerk. Nur im Administrator von BridgeLink ansehen, nicht weitergeben.")
     if k.get("bei_ablehnung", "abweisen") == "warten":
