@@ -339,7 +339,7 @@ def create_app(cfg: dict, store: Store | None = None, oidc=None) -> FastAPI:
         """Prüfen, ob sich aus der Aufgabe ein BridgeLink-Kanal bauen lässt. Das Kanal-XML enthält Passwörter und wird nie ausgeliefert."""
         from . import schnittstelle
         try:
-            k = schnittstelle.felder_kanal(ws, tid, cfg)
+            k = schnittstelle.felder_oder_dokument_kanal(ws, tid, cfg)
         except workbench.ApiError as exc:
             return {"bereit": False, "meldung": str(exc), "hinweise": [], "bridgelink": bool((cfg.get("bridgelink") or {}).get("api"))}
         return {"bereit": True, "meldung": "", "name": k.name, "hinweise": k.hinweise,
@@ -348,7 +348,7 @@ def create_app(cfg: dict, store: Store | None = None, oidc=None) -> FastAPI:
     @app.post("/api/aufgabe/{tid}/kanal")
     def kanal_einrichten(tid: str, request: Request):
         from . import schnittstelle
-        k = schnittstelle.felder_kanal(ws, tid, cfg)
+        k = schnittstelle.felder_oder_dokument_kanal(ws, tid, cfg)
         was = schnittstelle.einrichten(k, cfg)
         store.audit(wer(request), "schnittstelle.eingerichtet", tid, f"{was}, Kanal {k.id}")
         return {"was": was, "id": k.id, "name": k.name, "hinweise": k.hinweise}

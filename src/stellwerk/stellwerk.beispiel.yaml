@@ -63,6 +63,8 @@ bridgelink:
     fhir_benutzer:
     fhir_passwort_env:
     fhir_token_env:
+    stellwerk_adresse:      # so erreicht BridgeLink Stellwerk, für Kanäle von Dokument-Schnittstellen; https, http nur für localhost
+                            # (mit Anmeldung geht das Dienst-Token aus anmeldung.dienst_token_env mit)
     pruefablage:            # Ordner im BridgeLink-Server, Vorgabe /opt/bridgelink/appdata/stellwerk/pruefen
     bei_ablehnung: abweisen # CDR lehnt ein Bundle dauerhaft ab (HTTP 400, 413, 415, 422): abweisen = nach <pruefablage>/abgelehnt, Rest läuft weiter;
                             # warten = bleibt in der Warteschlange und hält alle folgenden auf (Reihenfolge bleibt)

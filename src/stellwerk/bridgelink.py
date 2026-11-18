@@ -129,7 +129,37 @@ if (CODES.indexOf(code) >= 0) {
 """
 
 
-def ablehnung_skript(k: dict, ordner: str) -> str:
+_ABLEHNUNG_DOKUMENT = """\
+var CODES = %s, ORDNER = %s;
+var code = Number(connectorMap.get('responseStatusCode') || 0);
+if (CODES.indexOf(code) >= 0) {
+  responseStatus = ERROR;
+  var id = String(connectorMessage.getMessageId());
+  var roh = String(connectorMessage.getEncodedData());
+  var endung = '';
+  var orig = sourceMap.get('originalFilename');
+  if (orig !== null && orig !== undefined) {
+    var m = /\\.([A-Za-z0-9]{1,8})$/.exec(String(orig));
+    if (m) { endung = '.' + m[1].toLowerCase(); }
+  }
+  var text = 'Stellwerk hat das Dokument mit HTTP ' + code + ' abgelehnt. Eine Wiederholung ändert daran nichts, deshalb wurde es nicht erneut ' +
+             'versucht und die folgenden Dokumente werden nicht aufgehalten.\\nBefunde: in BridgeLink am Dashboard bei Nachricht ' + id +
+             ' (Fehlerprotokoll) und im Laufprotokoll von Stellwerk. Sie werden hier nicht abgelegt, weil sie Angaben aus dem Dokument enthalten können.\\n' +
+             'Dokument: ' + id + endung + ' in diesem Ordner. Nach der Korrektur erneut in den Eingangsordner legen.';
+  var dir = new java.io.File(ORDNER);
+  dir.mkdirs();
+  var tmp = new java.io.File(dir, id + endung + '.tmp'), out = new java.io.FileOutputStream(tmp);
+  try { out.write(java.util.Base64.getMimeDecoder().decode(roh)); } finally { out.close(); }
+  tmp.renameTo(new java.io.File(dir, id + endung));
+  var t2 = new java.io.File(dir, id + '.abgelehnt.txt.tmp'), w = new java.io.OutputStreamWriter(new java.io.FileOutputStream(t2), 'UTF-8');
+  try { w.write(text); } finally { w.close(); }
+  t2.renameTo(new java.io.File(dir, id + '.abgelehnt.txt'));
+  responseStatusMessage = 'Von Stellwerk abgelehnt (HTTP ' + code + '), Dokument in ' + ORDNER;
+}
+"""
+
+
+def ablehnung_skript(k: dict, ordner: str, dokument: bool = False) -> str:
     """Antwort-Transformation für das FHIR-Ziel: dauerhaft abgelehnte Bundles aus der Warteschlange nehmen und ablegen.
 
     k["bei_ablehnung"]: "abweisen" (Vorgabe) oder "warten". Bei "warten" bleibt ein abgelehntes Bundle in der Warteschlange und
@@ -139,7 +169,8 @@ def ablehnung_skript(k: dict, ordner: str) -> str:
         raise BridgeLinkError(f"bridgelink.kanal.bei_ablehnung kennt nur „abweisen“ und „warten“, nicht „{modus}“.")
     if modus == "warten":
         return ""
-    return _ABLEHNUNG % (json.dumps(list(ABLEHNUNG_CODES)), json.dumps(ordner.rstrip("/") + "/abgelehnt"))
+    vorlage = _ABLEHNUNG_DOKUMENT if dokument else _ABLEHNUNG
+    return vorlage % (json.dumps(list(ABLEHNUNG_CODES)), json.dumps(ordner.rstrip("/") + "/abgelehnt"))
 
 
 def fhir_ziel_props(k: dict) -> str:
@@ -169,6 +200,41 @@ def fhir_ziel_props(k: dict) -> str:
         f'<usePreemptiveAuthentication>true</usePreemptiveAuthentication><username>{escape(user)}</username><password>{escape(pw)}</password>'
         '<content>${message.encodedData}</content><contentType>application/fhir+json</contentType><dataTypeBinary>false</dataTypeBinary>'
         '<charset>UTF-8</charset><socketTimeout>60000</socketTimeout></properties>')
+
+
+def stellwerk_ziel_props(adresse: str, params: dict[str, str], token: str) -> str:
+    """HTTP-Sender zu Stellwerk (POST /v1/convert): die Quelldatei unverändert im Body, Dienst-Token im Kopf, Warteschlange."""
+    headers = '<headers class="linked-hash-map"><entry><string>Accept</string><list><string>application/json</string></list></entry>'
+    if token:
+        headers += f'<entry><string>Authorization</string><list><string>Bearer {escape(token)}</string></list></entry>'
+    headers += '</headers>'
+    parameter = "".join(f'<entry><string>{escape(n)}</string><list><string>{escape(w)}</string></list></entry>' for n, w in params.items())
+    return (
+        '<properties class="com.mirth.connect.connectors.http.HttpDispatcherProperties" version="{v}"><pluginProperties/>'
+        + _dest_props(True) +
+        f'<host>{escape(adresse)}</host><useProxyServer>false</useProxyServer><proxyAddress></proxyAddress><proxyPort></proxyPort>'
+        f'<method>post</method>{headers}<parameters class="linked-hash-map">{parameter}</parameters><useHeadersVariable>false</useHeadersVariable>'
+        '<headersVariable></headersVariable><useParametersVariable>false</useParametersVariable><parametersVariable></parametersVariable>'
+        '<responseXmlBody>false</responseXmlBody><responseParseMultipart>false</responseParseMultipart>'
+        '<responseIncludeMetadata>false</responseIncludeMetadata>'
+        '<responseBinaryMimeTypes>application/.*(?&lt;!json|xml)$|image/.*|video/.*|audio/.*</responseBinaryMimeTypes>'
+        '<responseBinaryMimeTypesRegex>true</responseBinaryMimeTypesRegex><multipart>false</multipart>'
+        '<useAuthentication>false</useAuthentication><authenticationType>Basic</authenticationType>'
+        '<usePreemptiveAuthentication>true</usePreemptiveAuthentication><username></username><password></password>'
+        '<content>${message.encodedData}</content><contentType>application/octet-stream</contentType><dataTypeBinary>true</dataTypeBinary>'
+        '<charset>UTF-8</charset><socketTimeout>600000</socketTimeout></properties>')
+
+
+def poll_xml(sekunden: int) -> str:
+    """Abfrageintervall einer Quelle (Database Reader, File Reader), mindestens 5 Sekunden."""
+    return (
+        '<pollConnectorProperties version="{v}"><pollingType>INTERVAL</pollingType><pollOnStart>true</pollOnStart>'
+        f'<pollingFrequency>{max(5, int(sekunden)) * 1000}</pollingFrequency><pollingHour>0</pollingHour><pollingMinute>0</pollingMinute>'
+        '<cronJobs/><pollConnectorPropertiesAdvanced><weekly>true</weekly><inactiveDays><boolean>false</boolean><boolean>false</boolean>'
+        '<boolean>false</boolean><boolean>false</boolean><boolean>false</boolean><boolean>false</boolean><boolean>false</boolean>'
+        '<boolean>false</boolean></inactiveDays><dayOfMonth>1</dayOfMonth><allDay>true</allDay><startingHour>8</startingHour>'
+        '<startingMinute>0</startingMinute><endingHour>17</endingHour><endingMinute>0</endingMinute></pollConnectorPropertiesAdvanced>'
+        '</pollConnectorProperties>')
 
 
 def datei_props(ordner: str, muster: str = "${stellwerkDateiname}", inhalt: str = "${message.encodedData}") -> str:

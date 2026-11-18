@@ -95,6 +95,38 @@ Gilt für den Eingangskanal und für den Kanal je Schnittstelle.
 
 **Änderungen.** Wird die Zuordnung in Stellwerk geändert, den Kanal erneut einrichten. Der Kanal wird ersetzt, der Stand bleibt.
 
+## Schnittstelle für Dokumente (Ordner → Stellwerk → FHIR)
+
+Für Aufgaben mit einer Datei als Quelle (HL7-Datei, PDF, Text) erzeugt Stellwerk einen eigenen Kanal. Das Lesen, Abschnitte
+zuordnen und Bauen des Bundles macht Stellwerk selbst; der Kanal liefert die Datei an und kümmert sich um Warteschlange,
+Wiederholung und abgelehnte Dateien:
+
+```
+File Reader   Ordner auf dem BridgeLink-Server, Dateimuster, ohne Unterordner, Datei muss 5 s alt sein
+    |         danach nach <ordner>/verarbeitet, nicht lesbar nach <ordner>/fehler
+HTTP Sender   POST <stellwerk_adresse>/v1/convert?name=…&vorlage=…  Datei unverändert im Body, Dienst-Token im Kopf,
+              Warteschlange, Wiederholung jede Minute
+Stellwerk     liest, ordnet zu, prüft und stellt dem CDR zu (zustellung.ziel, zustellung.bei_pruefen)
+```
+
+Einrichten: in der Workbench bei der Aufgabe unter „Schnittstelle in BridgeLink“ den Eingangsordner (Pfad auf dem BridgeLink-Server)
+und das Dateimuster eintragen, oder `stellwerk schnittstelle <aufgabe> --einrichten`. In `stellwerk.yaml`:
+`bridgelink.kanal.stellwerk_adresse` (https, außer `localhost`) und, wenn Stellwerk mit Anmeldung läuft, das Dienst-Token in der
+Umgebungsvariable `STELLWERK_DIENST_TOKEN` (siehe [anmeldung.md](anmeldung.md)). Name der Datei, Vorlage und feste Angaben aus der
+Aufgabe (Patientennummer, Autor, Titel) gehen als Parameter mit.
+
+- **Ablehnung.** Antwortet Stellwerk mit 400, 413, 415 oder 422 (Datei nicht lesbar, Fehler im Bundle, zu groß), setzt der Kanal die
+  Nachricht auf ERROR und legt das Original als `<pruefablage>/<aufgabe>/abgelehnt/<Nachrichten-ID>.<Endung>` mit
+  `.abgelehnt.txt` ab. Der Dateiname der Quelle wird nicht übernommen (er kann einen Patientennamen enthalten). Ist Stellwerk
+  nicht erreichbar, wartet das Dokument in der Warteschlange. `bei_ablehnung: warten` gilt wie beim Bundle.
+- **Patientendaten** liegen im Eingangsordner, in `verarbeitet`, in `fehler`, in `abgelehnt` und im Nachrichtenspeicher von
+  BridgeLink (Data Pruner einschalten). Stellwerk selbst protokolliert nur Kanal, Quelle, Status und Befundcodes.
+- Der Kanal enthält das Dienst-Token. Wie das Datenbankpasswort wird er nie über die HTTP-Schnittstelle ausgeliefert.
+- Der Kanal liefert an `/v1/convert`; Stellwerk antwortet 200, auch wenn das Bundle Prüfpunkte hat. Was dann mit dem Bundle
+  geschieht, steht in `zustellung.bei_pruefen`.
+- Nicht enthalten: MLLP-Empfang (dafür `stellwerk mllp` oder ein eigener Kanal), Unterordner, andere Quellen als ein lokaler oder
+  eingehängter Ordner (SFTP, SMB: siehe die Reader von BridgeLink; der Kanal lässt sich dort von Hand ändern).
+
 ## Routing-Merkmale
 
 | Kopfzeile | Inhalt |
@@ -142,6 +174,13 @@ Jedes gelieferte Bundle wurde mit dem verglichen, das die Python-Pipeline aus de
 - 2 Zeilen je Lauf bei 13 Zeilen: vollständig, in Reihenfolge, ohne Lücke
 - „alle Zeilen bei jedem Lauf“
 
+**Kanal für Dokumente**, gegen BridgeLink 26.9.0 mit Stellwerk (ohne Anmeldung, auf demselben Rechner) und einem Stub als CDR:
+HL7-Datei im Eingangsordner wird gelesen, nach `verarbeitet` verschoben, von Stellwerk umgewandelt und als Bundle (`document`) am
+CDR abgeliefert; CDR antwortet 422: Nachricht ERROR, Original unverändert in `abgelehnt/` (Dateivergleich), kein Dateiname übernommen;
+Stellwerk aus: Nachricht QUEUED, nach dem Start zugestellt; Dateimuster lässt andere Dateien liegen.
+**Nicht getestet:** das Dienst-Token im Kanal gegen einen Stellwerk mit OIDC-Anmeldung (nur die Erzeugung und der Dienst-Token-Pfad
+einzeln), https zwischen BridgeLink und Stellwerk, PDF-Dateien und Dateien über 10 MB, Windows-Pfade.
+
 Automatische Tests (`tests/test_schnittstelle.py`, ohne BridgeLink): Kanal-XML, gültiges JavaScript der drei Skripte, Prüfungen,
 JDBC-Adressen und **jeder Testfall des Übergabepakets** durch dieselbe Datei `kanal_bauen.js`, die im Kanal läuft.
 Der Test gegen einen echten BridgeLink ist nicht automatisiert; er braucht einen laufenden Server mit Zugriff auf Quelle und Ablage.
@@ -166,9 +205,8 @@ LOB-Spalten, mehrere BridgeLink-Knoten, TLS zur Datenbank.
 - Die Abfrage wird als Unterabfrage verwendet: kein Fragezeichen darin, bei SQL Server kein `ORDER BY`.
 - Der Stand liegt in einer Datei auf dem BridgeLink-Server, nicht in der Datenbank von BridgeLink. Ein Cluster teilt sie nicht.
 - Das Datenbankpasswort steht im Kanal. Eigenes Konto mit Leserecht auf die Abfrage verwenden.
-- Es gibt nur diese Art Schnittstelle (breite Tabelle, eine Zeile je Befund). Laborwerte in Zeilenform und Dokumente
-  (PDF, Textspalten, HL7) brauchen die Leselogik von Stellwerk. Dafür gibt es keinen eigenständigen Kanal, solange Stellwerk keine
-  Anmeldung hat: Der Dienst darf nicht ins Netz, und ein Kanal müsste Patientendokumente an ihn schicken.
+- Der Kanal mit Database Reader bildet nur die breite Tabelle ab (eine Zeile je Befund). Laborwerte in Zeilenform und Textspalten
+  mit Dokumenten brauchen die Leselogik von Stellwerk und haben noch keinen Kanal. Dateien im Ordner siehe oben.
 
 **Kanal-Eingang („Stellwerk FHIR-Eingang“)**
 

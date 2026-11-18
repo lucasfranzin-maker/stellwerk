@@ -449,6 +449,25 @@ function kanalBlock(L) {
     st && st.bereit ? (st.hinweise || []).map(x => h('p', { class: 'mut', style: 'margin:6px 0 0' }, x)) : null);
 }
 
+function dokKanalBlock() {
+  const K = () => S.task.kanal, st = S.kanalStand, Z = S.zustellung || {};
+  const aendern = async (f, v) => { K()[f] = v; S.kanalStand = null; try { await saveTask(); } catch (e) { toast(e.message); } drawMain(); };
+  const feld = (label, el) => h('label', { class: 'f', style: 'display:block;margin:0 0 10px' }, label, el);
+  const ordner = h('input', { class: 'in mono', value: K().eingang_ordner, placeholder: '/daten/eingang/arztbriefe', onchange: () => aendern('eingang_ordner', ordner.value.trim()) });
+  const muster = h('input', { class: 'in mono', value: K().dateimuster, placeholder: '*.pdf', onchange: () => aendern('dateimuster', muster.value.trim() || '*') });
+  const takt = h('input', { class: 'in', type: 'number', min: 5, max: 86400, value: K().intervall, onchange: () => aendern('intervall', parseInt(takt.value, 10) || K().intervall) });
+  return h('div', { class: 'pad', style: 'border-top:1px solid var(--line)' }, h('div', { class: 'f' }, 'Schnittstelle in BridgeLink'),
+    h('p', { class: 'mut', style: 'margin:3px 0 10px' }, 'Fertiger Kanal: liest Dokumente aus einem Ordner auf dem BridgeLink-Server, schickt sie unverändert an Stellwerk und bekommt die Antwort. Stellwerk wandelt um und stellt dem CDR zu. Abgelehnte Dokumente liegen mit Hinweis in der Ablage.'),
+    h('div', { style: 'display:grid;grid-template-columns:2fr 1fr 1fr;gap:0 10px;align-items:end' }, feld('Eingangsordner auf dem BridgeLink-Server', ordner), feld('Dateimuster', muster), feld('Intervall in s', takt)),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn', disabled: S.busy, onclick: kanalPruefen }, 'Prüfen'),
+      h('button', { class: 'btn pri', disabled: S.busy || !Z.bridgelink, title: Z.bridgelink ? '' : 'bridgelink.api ist nicht eingerichtet', onclick: kanalEinrichten }, icon('send'), 'In BridgeLink einrichten')),
+    st && st.fertig ? h('p', { style: 'margin:10px 0 0' }, h('span', { class: 'tag ok' }, st.fertig)) : null,
+    st && !st.bereit ? h('p', { style: 'margin:10px 0 0' }, h('span', { class: 'tag fehler' }, 'Noch nicht möglich'), ' ', st.meldung) : null,
+    st && st.bereit && !st.fertig ? h('p', { style: 'margin:10px 0 0' }, h('span', { class: 'tag ok' }, 'Der Kanal lässt sich bauen')) : null,
+    st && st.bereit ? (st.hinweise || []).map(x => h('p', { class: 'mut', style: 'margin:6px 0 0' }, x)) : null);
+}
+
 function paneOut() {
   const L = S.lauf, t = S.task, body = h('div', { class: 'pb' });
   if (!L) body.append(h('div', { class: 'pad mut' }, 'Hier erscheint das FHIR-Bundle.'));
@@ -485,6 +504,7 @@ function paneOut() {
       S.paketDaten ? h('p', { style: 'margin:0 0 10px' }, h('span', { class: 'tag pruefen' }, 'Das Paket enthält dann Patientendaten.'), ' Nur dort ablegen und weitergeben, wo das erlaubt ist.') : null,
       h('div', { class: 'row' }, h('button', { class: 'btn', onclick: paket }, icon('down'), 'Übergabepaket laden'))));
     if (feld && t.art === 'sql') body.append(kanalBlock(L));
+    else if (!feld && t.art === 'datei') body.append(dokKanalBlock());
   }
   return h('section', { class: 'pane out', 'aria-label': 'FHIR-Ausgabe' }, h('div', { class: 'ph' }, tabs(S.tabO, [['json', 'Bundle.json'], ['val', 'Prüfung und Ablage']], k => S.tabO = k)), body);
 }

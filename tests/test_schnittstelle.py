@@ -395,3 +395,145 @@ def test_einrichten_meldet_ausgeschalteten_pruner(ws, lis, cfg2, monkeypatch):
     k2 = schnittstelle.felder_kanal(ws, "task000001", cfg2)
     schnittstelle.einrichten(k2, cfg2)
     assert not any("Data Pruner" in h for h in k2.hinweise)
+
+
+# --- Kanal für Dokumente (Ordner -> Stellwerk -> CDR) ---------------------------------------------------------------------
+
+@pytest.fixture
+def dok(ws, cfg2, tmp_path, monkeypatch):
+    monkeypatch.setenv("STELLWERK_DIENST_TOKEN", "d" * 40)
+    cfg2["bridgelink"]["kanal"]["stellwerk_adresse"] = "https://stellwerk.haus"
+    cfg2["anmeldung"]["art"] = "oidc"
+    cfg2["zustellung"]["ziel"] = "https://cdr.haus/fhir"
+    ws.save_task("task000001", {"art": "datei", "vorlage": "entlassbrief", "meta": {"author": "Dr. Beispiel"},
+                                "kanal": {"eingang_ordner": "/daten/eingang/arztbriefe", "dateimuster": "*.pdf", "intervall": 30}})
+    return ws, cfg2
+
+
+def dok_teile(xml):
+    root = ET.fromstring(xml)
+    return root.find("sourceConnector/properties"), root.find("destinationConnectors/connector/properties"), root
+
+
+def test_dokument_kanal_hat_alle_bausteine(dok):
+    ws, cfg = dok
+    k = schnittstelle.felder_oder_dokument_kanal(ws, "task000001", cfg)
+    q, z, root = dok_teile(k.xml)
+    assert root.find("sourceConnector/transportName").text == "File Reader" and q.get("class").endswith("file.FileReceiverProperties")
+    assert q.findtext("scheme") == "FILE" and q.findtext("host") == "/daten/eingang/arztbriefe" and q.findtext("fileFilter") == "*.pdf"
+    assert q.findtext("binary") == "true" and q.findtext("afterProcessingAction") == "MOVE" and q.findtext("errorResponseAction") == "MOVE"
+    assert q.findtext("moveToDirectory") == "/daten/eingang/arztbriefe/verarbeitet" and q.findtext("errorMoveToDirectory").endswith("/fehler")
+    assert q.findtext("pollConnectorProperties/pollingFrequency") == "30000" and q.findtext("recursion") is None
+    assert z.get("class").endswith("HttpDispatcherProperties") and z.findtext("host") == "https://stellwerk.haus/v1/convert"
+    assert z.findtext("dataTypeBinary") == "true" and z.findtext("queueEnabled") is None and z.findtext("destinationConnectorProperties/queueEnabled") == "true"
+    kopf = {e.findtext("string"): e.findtext("list/string") for e in z.findall("headers/entry")}
+    assert kopf["Authorization"] == "Bearer " + "d" * 40
+    par = {e.findtext("string"): e.findtext("list/string") for e in z.findall("parameters/entry")}
+    assert par == {"name": "${originalFilename}", "vorlage": "entlassbrief", "autor": "Dr. Beispiel"}
+    assert k.id == schnittstelle.felder_oder_dokument_kanal(ws, "task000001", cfg).id
+    assert any("Dienst-Token" in h for h in k.hinweise) and any("Patientendaten" in h for h in k.hinweise)
+    assert "AUS" not in k.xml and not k.paket
+
+
+def test_dokument_kanal_prueft_die_einrichtung(dok):
+    ws, cfg = dok
+    kb = cfg["bridgelink"]["kanal"]
+    kb["stellwerk_adresse"] = ""
+    with pytest.raises(ApiError, match="stellwerk_adresse fehlt"):
+        schnittstelle.felder_oder_dokument_kanal(ws, "task000001", cfg)
+    for schlecht in ("http://stellwerk.haus", "ftp://x", "https://u:p@stellwerk.haus", "https://stellwerk.haus/?a=1"):
+        kb["stellwerk_adresse"] = schlecht
+        with pytest.raises(ApiError, match="stellwerk_adresse"):
+            schnittstelle.felder_oder_dokument_kanal(ws, "task000001", cfg)
+    kb["stellwerk_adresse"] = "http://localhost:8765/"                                     # derselbe Rechner: ohne TLS erlaubt
+    k = schnittstelle.felder_oder_dokument_kanal(ws, "task000001", cfg)
+    assert dok_teile(k.xml)[1].findtext("host") == "http://localhost:8765/v1/convert" and any("ohne https" in h for h in k.hinweise)
+    kb["stellwerk_adresse"] = "https://stellwerk.haus"
+    import os
+    os.environ["STELLWERK_DIENST_TOKEN"] = "zu-kurz"
+    with pytest.raises(ApiError, match="Dienst-Token"):
+        schnittstelle.felder_oder_dokument_kanal(ws, "task000001", cfg)
+    cfg["anmeldung"]["art"] = "keine"                                                       # ohne Anmeldung verlangt Stellwerk kein Token
+    k = schnittstelle.felder_oder_dokument_kanal(ws, "task000001", cfg)
+    assert "Authorization" not in k.xml or "zu-kurz" in k.xml                               # vorhandenes Token wird trotzdem mitgeschickt
+    ws.save_task("task000001", {"art": "datei", "kanal": {}})
+    with pytest.raises(ApiError, match="Eingangsordner"):
+        schnittstelle.felder_oder_dokument_kanal(ws, "task000001", cfg)
+
+
+def test_dokument_einstellungen_werden_geprueft():
+    assert clean_kanal({"eingang_ordner": " /ein/ ", "dateimuster": "*.hl7"})["eingang_ordner"] == "/ein/"
+    for ordner in ("relativ", "/a/../b", "/a/${x}", "/a\nb"):
+        with pytest.raises(ApiError, match="Eingangsordner"):
+            clean_kanal({"eingang_ordner": ordner})
+    for muster in ("../x", "a/b", "${x}", "x" * 101):
+        with pytest.raises(ApiError, match="Dateimuster"):
+            clean_kanal({"dateimuster": muster})
+
+
+def test_dokument_api_liefert_nie_xml_oder_token(api, client, cfg, monkeypatch):
+    monkeypatch.setenv("STELLWERK_DIENST_TOKEN", "d" * 40)
+    cfg["bridgelink"]["kanal"]["stellwerk_adresse"] = "https://stellwerk.haus"
+    api("PUT", "baum", {"kinder": [{"id": "task000001", "name": "Arztbriefe", "typ": "aufgabe"}]})
+    api("PUT", "aufgabe/task000001", {"art": "datei", "kanal": {"eingang_ordner": "/daten/ein"}})
+    r = client.get("/api/aufgabe/task000001/kanal")
+    j = r.json()
+    assert j["bereit"] is True and j["name"] == "Stellwerk Arztbriefe" and "<channel" not in r.text and "d" * 40 not in r.text
+    api("PUT", "aufgabe/task000001", {"art": "datei", "kanal": {}})
+    assert "Eingangsordner" in client.get("/api/aufgabe/task000001/kanal").json()["meldung"]
+
+
+_HARNESS_DOK = """\
+const skript = require('fs').readFileSync(process.argv[2], 'utf8'), faelle = JSON.parse(process.argv[3]);
+const ergebnis = [];
+for (const f of faelle) {
+  const geschrieben = {};
+  const java = { io: {
+    File: function (a, b) { this.p = b === undefined ? a : a.p + '/' + b; this.mkdirs = function () {}; this.renameTo = (t) => { geschrieben[t.p] = geschrieben[this.p]; delete geschrieben[this.p]; }; },
+    FileOutputStream: function (file) { this.f = file; this.write = (bytes) => { geschrieben[file.p] = Buffer.from(bytes).toString('latin1'); }; this.close = function () {}; },
+    OutputStreamWriter: function (o) { this.write = (t) => { geschrieben[o.f.p] = t; }; this.close = function () {}; } },
+    util: { Base64: { getMimeDecoder: () => ({ decode: (s) => Buffer.from(s, 'base64') }) } } };
+  const karte = (o) => ({ get: (k) => (k in o ? o[k] : null) });
+  const msg = { getMessageId: () => 77, getEncodedData: () => f.roh };
+  const fn = new Function('connectorMap', 'sourceMap', 'connectorMessage', 'java', 'ERROR', 'responseStatus', 'responseStatusMessage',
+                          skript + '\\n;return [responseStatus, responseStatusMessage];');
+  const [st, text] = fn(karte(f.connector), karte(f.quelle), msg, java, 'ERROR', 'QUEUED', '');
+  ergebnis.push({ status: st, text, dateien: geschrieben });
+}
+console.log(JSON.stringify(ergebnis));
+"""
+
+
+@pytest.mark.skipif(not NODE, reason="node ist nicht installiert")
+def test_dokument_ablehnung_legt_das_original_ab(tmp_path):
+    from stellwerk import bridgelink as bl
+    skript = tmp_path / "a.js"
+    skript.write_text(bl.ablehnung_skript({}, "/ablage/dok/", dokument=True), encoding="utf-8")
+    h = tmp_path / "h.js"
+    h.write_text(_HARNESS_DOK, encoding="utf-8")
+    import base64
+    inhalt = b"%PDF-1.4 \xff\x00\x01 original"
+    roh = base64.b64encode(inhalt).decode()
+    codes = [200, 400, 401, 404, 413, 415, 422, 429, 500, 503, 0]
+    faelle = [{"connector": {"responseStatusCode": c} if c else {}, "quelle": {"originalFilename": "Mueller, Hans 1.PDF"}, "roh": roh} for c in codes]
+    faelle.append({"connector": {"responseStatusCode": 422}, "quelle": {"originalFilename": "ohne-endung/../../x"}, "roh": roh})
+    erg = json.loads(subprocess.run([NODE, str(h), str(skript), json.dumps(faelle)], capture_output=True, text=True, check=True).stdout)
+    for c, e in zip(codes, erg):
+        if c in bl.ABLEHNUNG_CODES:
+            assert e["status"] == "ERROR" and f"HTTP {c}" in e["text"]
+            assert set(e["dateien"]) == {"/ablage/dok/abgelehnt/77.pdf", "/ablage/dok/abgelehnt/77.abgelehnt.txt"}      # kein Dateiname mit Patientennamen
+            assert e["dateien"]["/ablage/dok/abgelehnt/77.pdf"].encode("latin1") == inhalt
+        else:
+            assert e["status"] == "QUEUED" and e["dateien"] == {}, c
+    assert set(erg[-1]["dateien"]) == {"/ablage/dok/abgelehnt/77", "/ablage/dok/abgelehnt/77.abgelehnt.txt"}
+    assert bl.ablehnung_skript({"bei_ablehnung": "warten"}, "/x", dokument=True) == ""
+
+
+@pytest.mark.skipif(not NODE, reason="node ist nicht installiert")
+def test_dokument_skripte_sind_gueltiges_javascript(dok, tmp_path):
+    ws, cfg = dok
+    root = ET.fromstring(schnittstelle.felder_oder_dokument_kanal(ws, "task000001", cfg).xml)
+    text = root.find("destinationConnectors/connector/responseTransformer//script").text
+    f = tmp_path / "s.js"
+    f.write_text("(function () {\n" + text + "\n});\n", encoding="utf-8")
+    assert subprocess.run([NODE, "--check", str(f)], capture_output=True, text=True).returncode == 0

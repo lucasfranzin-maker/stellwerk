@@ -21,7 +21,7 @@ from .textrepair import decode_bytes
 _ID = re.compile(r"^[a-z0-9]{6,32}$")
 _META = ("patient_id", "encounter_id", "doc_id", "doc_date", "author", "title", "family", "given", "birth_date")
 KANAL_VORGABE = {"intervall": 60, "neu_spalte": "", "neu_art": "zahl", "vollabfrage": False, "start": "", "max_zeilen": 5000,
-                 "zustellen": [], "jdbc_url": ""}
+                 "zustellen": [], "jdbc_url": "", "eingang_ordner": "", "dateimuster": "*"}
 VORGABE = {"art": "datei", "vorlage": "", "meta": {}, "aliase": {}, "db": "", "abfrage": "", "dokument": 0, "ablage": "",
            "modus": "dokument", "felder": {"regeln": {}, "abgelehnt": [], "status": ""}, "kanal": KANAL_VORGABE}
 
@@ -48,7 +48,14 @@ def clean_kanal(k) -> dict:
     jdbc = str(k["jdbc_url"] or "").strip()
     if jdbc and (not jdbc.startswith("jdbc:") or "password=" in jdbc.lower() or "pwd=" in jdbc.lower()):
         raise ApiError(400, "Die JDBC-Adresse muss mit jdbc: beginnen und darf kein Passwort enthalten.")
-    return {"intervall": intervall, "neu_spalte": spalte, "neu_art": k["neu_art"], "vollabfrage": bool(k["vollabfrage"]), "start": start,
+    ordner = str(k["eingang_ordner"] or "").strip()
+    if ordner and (not (ordner.startswith("/") or re.match(r"^[A-Za-z]:[\\/]|^\\\\", ordner)) or ".." in re.split(r"[\\/]", ordner)
+                   or re.search(r"[\x00-\x1f]|\$\{", ordner)):
+        raise ApiError(400, "Der Eingangsordner ist ein absoluter Pfad auf dem BridgeLink-Server, ohne „..“ und ohne Platzhalter.")
+    muster = str(k["dateimuster"] or "*").strip()
+    if len(muster) > 100 or re.search(r"[\\/\x00-\x1f]|\$\{", muster):
+        raise ApiError(400, "Das Dateimuster ist ein Name mit * und ? (zum Beispiel *.pdf), ohne Pfad.")
+    return {"intervall": intervall, "eingang_ordner": ordner, "dateimuster": muster, "neu_spalte": spalte, "neu_art": k["neu_art"], "vollabfrage": bool(k["vollabfrage"]), "start": start,
             "max_zeilen": max_zeilen, "zustellen": [c for c in dict.fromkeys(k["zustellen"] or []) if c in ("TEXTWERT", "GESCHLECHT", "DATUM")],
             "jdbc_url": jdbc}
 

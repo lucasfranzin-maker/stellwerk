@@ -16,11 +16,13 @@ Dokument-Schnittstellen (PDF, HL7, Textspalten) braucht die Lese- und Zuordnungs
 from __future__ import annotations
 
 import json
+import os
 import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from importlib import resources
+from urllib.parse import urlsplit
 from xml.sax.saxutils import escape
 
 from sqlalchemy.engine import make_url
@@ -284,14 +286,7 @@ def _felder_kanal(ws: Workspace, tid: str, cfg: dict, version: str) -> Kanal:
     update = kopf + _FORTSCHRITT
     filter_js = f"var Z = {_js(z_klein)};\nvar OPT = {_js(opt)};\n" + _bauer() + "\n" + _UMGEBUNG + _BAUEN
 
-    poll = (
-        '<pollConnectorProperties version="{v}"><pollingType>INTERVAL</pollingType><pollOnStart>true</pollOnStart>'
-        f'<pollingFrequency>{max(5, int(ke["intervall"])) * 1000}</pollingFrequency><pollingHour>0</pollingHour><pollingMinute>0</pollingMinute>'
-        '<cronJobs/><pollConnectorPropertiesAdvanced><weekly>true</weekly><inactiveDays><boolean>false</boolean><boolean>false</boolean>'
-        '<boolean>false</boolean><boolean>false</boolean><boolean>false</boolean><boolean>false</boolean><boolean>false</boolean>'
-        '<boolean>false</boolean></inactiveDays><dayOfMonth>1</dayOfMonth><allDay>true</allDay><startingHour>8</startingHour>'
-        '<startingMinute>0</startingMinute><endingHour>17</endingHour><endingMinute>0</endingMinute></pollConnectorPropertiesAdvanced>'
-        '</pollConnectorProperties>')
+    poll = bl.poll_xml(ke["intervall"])
     source = (
         '<sourceConnector version="{v}"><metaDataId>0</metaDataId><name>sourceConnector</name>'
         '<properties class="com.mirth.connect.connectors.jdbc.DatabaseReceiverProperties" version="{v}"><pluginProperties/>'
@@ -349,6 +344,110 @@ def _felder_kanal(ws: Workspace, tid: str, cfg: dict, version: str) -> Kanal:
     if verbindung["passwort"]:
         hinweise.append("Der Kanal enthält das Passwort der Datenbank. Nur im Administrator von BridgeLink ansehen, nicht weitergeben.")
     return Kanal(cid, f"Stellwerk {name}", xml, hinweise, paket)
+
+
+# --------------------------------------------------------------------------
+# Kanal für Dokumente (PDF, HL7-Datei, Text)
+# --------------------------------------------------------------------------
+
+_QUERY = {"patient_id": "patient_id", "encounter_id": "fall", "doc_id": "dokument_id", "author": "autor", "title": "titel"}
+
+
+def _stellwerk_adresse(k: dict) -> str:
+    a = (k.get("stellwerk_adresse") or "").strip().rstrip("/")
+    if not a:
+        raise bl.BridgeLinkError("bridgelink.kanal.stellwerk_adresse fehlt: so erreicht BridgeLink Stellwerk, zum Beispiel https://stellwerk.haus.")
+    u = urlsplit(a)
+    if u.scheme not in ("http", "https") or not u.hostname or u.query or u.fragment or u.username or u.password:
+        raise bl.BridgeLinkError("bridgelink.kanal.stellwerk_adresse ist keine Adresse der Form https://rechner[:port].")
+    if u.scheme != "https" and u.hostname not in ("localhost", "127.0.0.1", "::1"):
+        raise bl.BridgeLinkError("bridgelink.kanal.stellwerk_adresse muss https sein: Das Dokument und das Dienst-Token gehen darüber.")
+    return a
+
+
+def felder_oder_dokument_kanal(ws: Workspace, tid: str, cfg: dict, version: str = "26.9.0") -> Kanal:
+    """Kanal passend zur Aufgabe: Feld-Mapping aus der Datenbank oder Dokument-Schnittstelle (Ordner)."""
+    t = ws.task(tid)
+    if t["art"] == "sql":
+        return felder_kanal(ws, tid, cfg, version)
+    try:
+        return dokument_kanal(ws, tid, cfg, version)
+    except bl.BridgeLinkError as exc:
+        raise ApiError(409, str(exc)) from exc
+
+
+def dokument_kanal(ws: Workspace, tid: str, cfg: dict, version: str = "26.9.0") -> Kanal:
+    """Kanal für eine Dokument-Aufgabe: Ordner auf dem BridgeLink-Server -> Stellwerk (/v1/convert) -> CDR.
+
+    BridgeLink liest die Datei, schickt sie unverändert an Stellwerk und bekommt eine Antwort. Lesen, Zuordnen und Zustellen
+    ans CDR (zustellung.ziel) macht Stellwerk; der Kanal sorgt für Warteschlange, Wiederholung und Ablage abgelehnter Dateien."""
+    t = ws.task(tid)
+    if t["art"] != "datei" or t["modus"] != "dokument":
+        raise ApiError(400, "Diese Aufgabe ist kein Dokument. Für Feld-Mapping aus einer Datenbank gibt es den Kanal mit Database Reader.")
+    ke = kanal_einstellungen(t)
+    ordner = (ke.get("eingang_ordner") or "").strip().rstrip("/\\")
+    if not ordner:
+        raise ApiError(409, "Für den Kanal fehlt der Eingangsordner: der Ordner auf dem BridgeLink-Server, in dem die Dokumente ankommen.")
+    k = (cfg.get("bridgelink") or {}).get("kanal") or {}
+    adresse = _stellwerk_adresse(k)
+    a = cfg.get("anmeldung") or {}
+    token = os.environ.get(a.get("dienst_token_env") or "", "")
+    if a.get("art", "keine") != "keine" and len(token) < 32:
+        raise bl.BridgeLinkError(f"Stellwerk verlangt Anmeldung. Für den Kanal fehlt das Dienst-Token (Umgebungsvariable {a.get('dienst_token_env')}, mindestens 32 Zeichen).")
+    name = re.sub(r"\s+", " ", uebergabe.task_name(ws, tid)).strip()
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "-", name).strip("-") or "schnittstelle"
+    cid = str(uuid.uuid5(bl.KANAL_NS, "schnittstelle:" + tid))
+    ablage = (k.get("pruefablage") or "/opt/bridgelink/appdata/stellwerk/pruefen").rstrip("/") + "/" + slug
+
+    params = {"name": "${originalFilename}"}
+    if t["vorlage"]:
+        params["vorlage"] = t["vorlage"]
+    params.update({_QUERY[m]: w for m, w in t["meta"].items() if m in _QUERY})
+    sep = "\\" if re.match(r"^[A-Za-z]:\\|^\\\\", ordner) else "/"
+    source = (
+        '<sourceConnector version="{v}"><metaDataId>0</metaDataId><name>sourceConnector</name>'
+        '<properties class="com.mirth.connect.connectors.file.FileReceiverProperties" version="{v}"><pluginProperties/>'
+        + bl.poll_xml(ke["intervall"]) +
+        '<sourceConnectorProperties version="{v}"><responseVariable>None</responseVariable><respondAfterProcessing>true</respondAfterProcessing>'
+        '<processBatch>false</processBatch><firstResponse>false</firstResponse><processingThreads>1</processingThreads>'
+        f'{bl._resources()}<queueBufferSize>1000</queueBufferSize></sourceConnectorProperties>'
+        f'<scheme>FILE</scheme><host>{escape(ordner)}</host><fileFilter>{escape(ke["dateimuster"] or "*")}</fileFilter><regex>false</regex>'
+        '<directoryRecursion>false</directoryRecursion><ignoreDot>true</ignoreDot><anonymous>true</anonymous><username>anonymous</username>'
+        '<password>anonymous</password><timeout>10000</timeout><secure>true</secure><passive>true</passive><validateConnection>true</validateConnection>'
+        f'<afterProcessingAction>MOVE</afterProcessingAction><moveToDirectory>{escape(ordner + sep + "verarbeitet")}</moveToDirectory>'
+        '<moveToFileName>${UUID}_${originalFilename}</moveToFileName>'
+        f'<errorReadingAction>MOVE</errorReadingAction><errorResponseAction>MOVE</errorResponseAction>'
+        f'<errorMoveToDirectory>{escape(ordner + sep + "fehler")}</errorMoveToDirectory>'
+        '<errorMoveToFileName>${UUID}_${originalFilename}</errorMoveToFileName>'
+        '<checkFileAge>true</checkFileAge><fileAge>5000</fileAge><fileSizeMinimum>1</fileSizeMinimum>'
+        f'<fileSizeMaximum>{50 * 1024 * 1024}</fileSizeMaximum><ignoreFileSizeMaximum>false</ignoreFileSizeMaximum>'
+        '<sortBy>date</sortBy><binary>true</binary><charsetEncoding>DEFAULT_ENCODING</charsetEncoding></properties>'
+        + bl._raw("transformer") + '<filter version="{v}"><elements/></filter>'
+        '<transportName>File Reader</transportName><mode>SOURCE</mode><enabled>true</enabled><waitForPrevious>true</waitForPrevious>'
+        '</sourceConnector>')
+    dests = [bl._connector(1, "Stellwerk", bl.stellwerk_ziel_props(adresse + "/v1/convert", params, token), "HTTP Sender",
+                           bl._filter("Alle Dokumente", "return true;"), bl.ablehnung_skript(k, ablage, dokument=True))]
+    beschreibung = (f"Schnittstelle „{name}“. Liest Dokumente aus {ordner}, schickt sie unverändert an Stellwerk ({adresse}), das sie in FHIR "
+                    "umwandelt und dem CDR zustellt. Von Stellwerk erzeugt; Änderungen hier werden bei erneutem Einrichten überschrieben.")
+    xml = bl.kanal_xml(cid, f"Stellwerk {name}", beschreibung, source, dests, "", k, version)
+
+    hinweise = [f"Dokumente kommen in {ordner} an (Muster {ke['dateimuster'] or '*'}, ohne Unterordner). Gelesene Dokumente liegen danach in "
+                f"{ordner}{sep}verarbeitet, nicht lesbare in {ordner}{sep}fehler. Beides sind Patientendaten: bereinigen oder schützen.",
+                "Die Datei wird zur Umwandlung an Stellwerk geschickt. Stellwerk stellt das Bundle selbst zu (zustellung.ziel); der Kanal "
+                "bekommt nur die Antwort."]
+    if not (cfg.get("zustellung") or {}).get("ziel"):
+        hinweise.append("zustellung.ziel ist leer: Stellwerk legt die Bundles nur in seine Ausgabe, keines geht an ein CDR.")
+    if token:
+        hinweise.append("Der Kanal enthält das Dienst-Token von Stellwerk. Nur im Administrator von BridgeLink ansehen, nicht weitergeben.")
+    if k.get("bei_ablehnung", "abweisen") == "warten":
+        hinweise.append("bei_ablehnung ist „warten“: Lehnt Stellwerk ein Dokument dauerhaft ab (HTTP 400, 422), bleibt es in der Warteschlange "
+                        "und hält alle folgenden auf.")
+    else:
+        hinweise.append(f"Lehnt Stellwerk ein Dokument dauerhaft ab (HTTP {', '.join(map(str, bl.ABLEHNUNG_CODES))}), geht es als Fehler in das "
+                        f"Dashboard von BridgeLink und mit Hinweis in {ablage}/abgelehnt. Ist Stellwerk nicht erreichbar, wartet es in der Warteschlange.")
+    if "http://" in adresse:
+        hinweise.append("Stellwerk wird ohne https angesprochen (nur für denselben Rechner gedacht).")
+    return Kanal(cid, f"Stellwerk {name}", xml, hinweise, {})
 
 
 def einrichten(kanal: Kanal, cfg: dict) -> str:

@@ -159,7 +159,7 @@ def cmd_schnittstelle(args, cfg) -> int:
         zeigen(ws.tree()["kinder"], [])
         return 0
     try:
-        k = schnittstelle.felder_kanal(ws, args.aufgabe, cfg)
+        k = schnittstelle.felder_oder_dokument_kanal(ws, args.aufgabe, cfg)
         for h in k.hinweise:
             print("Hinweis:", h, file=sys.stderr)
         if args.einrichten:
