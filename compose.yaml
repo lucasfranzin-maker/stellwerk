@@ -2,18 +2,22 @@
 #   Im Haus mit SQLite:      docker compose up -d
 #   Mit PostgreSQL:          docker compose --profile postgres up -d   (und STELLWERK_DATENBANK unten umstellen)
 #
-# Der Dienst hat noch keine Anmeldung. Deshalb ist er nur auf 127.0.0.1 des Hosts erreichbar.
-# Freigabe ins Netz erst mit Anmeldung (OIDC) oder hinter einem Reverse-Proxy mit Anmeldung.
+# Ohne Anmeldung (Vorgabe hier) ist der Dienst nur auf 127.0.0.1 des Hosts erreichbar.
+# Fürs Netz: Anmeldung in stellwerk.yaml einrichten (anmeldung.art: oidc, siehe docs/anmeldung.md), TLS davor setzen,
+# STELLWERK_OHNE_ANMELDUNG unten entfernen und erst dann den Port freigeben.
 
 services:
   stellwerk:
-    image: stellwerk:0.2
+    image: stellwerk:0.3
     build: .
     restart: unless-stopped
     ports:
       - "127.0.0.1:8080:8080"
     environment:
       STELLWERK_CONFIG: /konfig/stellwerk.yaml
+      STELLWERK_OHNE_ANMELDUNG: "1"     # nur, solange der Port oben an 127.0.0.1 gebunden bleibt
+      # STELLWERK_OIDC_SECRET: Geheimnis des Clients beim Identitätsdienst, besser über ein Secret
+      # STELLWERK_DIENST_TOKEN: Zugang für Kommunikationsserver zu /v1/convert
       # STELLWERK_DATENBANK: postgresql+psycopg://stellwerk:${POSTGRES_PASSWORD:?Passwort setzen}@postgres:5432/stellwerk
       # STELLWERK_LLM_KEY: nur bei externem Modell, besser über ein Secret
     volumes:

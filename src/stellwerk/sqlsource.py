@@ -65,6 +65,27 @@ def resolve_url(db: str) -> str:
     return _PLATZHALTER.sub(sub, db)
 
 
+_HARMLOS = {"service_name", "driver", "charset"}
+_UMLEITEND = {"host", "hostaddr", "port", "server", "addr", "service", "servicefile", "passfile", "odbc_connect", "dsn", "unix_socket"}
+
+
+def connection_target(db: str) -> tuple[str, str, list[str], list[str]]:
+    """Wohin die Adresse verbindet: Rechner, Port, Parameter, die das Ziel umleiten, und sonstige unbekannte Parameter.
+
+    SQLite ist eine Datei auf dem Stellwerk-Server und hat kein Ziel im Netz: ("", "", [], [])."""
+    from urllib.parse import parse_qsl, urlsplit
+    url = resolve_url(db)
+    if url.startswith("sqlite:"):
+        return "", "", [], []
+    try:
+        u = urlsplit(url)
+        host, port = (u.hostname or "").lower(), str(u.port or "")
+    except ValueError as exc:
+        raise SqlError("Die Datenbankadresse ist nicht lesbar.") from exc
+    keys = sorted({k.lower() for k, _ in parse_qsl(u.query, keep_blank_values=True)})
+    return host, port, [k for k in keys if k in _UMLEITEND], [k for k in keys if k not in _UMLEITEND and k not in _HARMLOS]
+
+
 def public_url(db: str) -> str:
     """Adresse ohne Passwort, für Protokoll und als Schlüssel."""
     m = re.match(r"^([a-z0-9+]+://)([^:/@]+):([^@]*)@(.*)$", db, re.I)

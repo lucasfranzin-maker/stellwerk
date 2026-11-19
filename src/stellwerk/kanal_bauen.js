@@ -110,8 +110,20 @@ var StellwerkBauen = (function () {
     }
     var fall = zelle(row, eine('fall.id')), auftrag = zelle(row, eine('auftrag.id'));
     var werte = cols('obs.wert');
+    var codeSpalte = eine('obs.code');
+    if (codeSpalte) {                                       // Zeilenform: der Analysecode der Zeile wählt den Eintrag der Codetabelle
+      var tabelle = cols('obs.code')[0].codes || [], k = zelle(row, codeSpalte), treffer = null;
+      for (var t = 0; t < tabelle.length; t++) { if (tabelle[t].code === k) { treffer = tabelle[t]; break; } }
+      if (!k) {
+        hinweise.push({ code: 'CODE_LEER', text: 'Die Zeile hat keinen Analysecode.' });
+      } else if (!treffer) {
+        hinweise.push({ code: 'CODE_UNBEKANNT', text: 'Analysecode „' + k + '“ steht nicht in der Codetabelle, dafür entsteht keine Observation.' });
+      }
+      werte = treffer && werte.length ? [{ spalte: k, wertspalte: werte[0].spalte, loinc: treffer.loinc, anzeige: treffer.anzeige,
+                                           einheit_spalte: werte[0].einheit_spalte, einheit_fest: treffer.einheit_fest }] : [];
+    }
     for (var i = 0; i < werte.length; i++) {
-      var w = werte[i], raw = zelle(row, w.spalte);
+      var w = werte[i], raw = zelle(row, w.wertspalte || w.spalte);
       if (!raw) { continue; }
       var coding = { system: 'http://loinc.org', code: w.loinc };
       if (w.anzeige) { coding.display = w.anzeige; }
@@ -140,7 +152,11 @@ var StellwerkBauen = (function () {
       }
       entries.push({ fullUrl: 'urn:uuid:' + env.uuid(), resource: obs, request: request });
     }
-    if (entries.length < 2) { return { bundle: null, grund: 'KEIN_MESSWERT', hinweise: hinweise }; }
+    if (entries.length < 2) {
+      var grund = 'KEIN_MESSWERT';
+      for (var q = 0; q < hinweise.length; q++) { if (hinweise[q].code === 'CODE_UNBEKANNT' || hinweise[q].code === 'CODE_LEER') { grund = hinweise[q].code; } }
+      return { bundle: null, grund: grund, hinweise: hinweise };
+    }
     return { bundle: { resourceType: 'Bundle', type: 'transaction', entry: entries }, grund: '', hinweise: hinweise };
   }
 

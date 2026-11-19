@@ -26,8 +26,18 @@ DEFAULTS: dict[str, Any] = {
     "bridgelink": {"api": "", "benutzer": "", "passwort_env": "STELLWERK_BRIDGELINK_PASSWORT", "ca": "",
                    "kanal": {"name": "Stellwerk FHIR-Eingang", "host": "0.0.0.0", "port": 8095, "pfad": "/stellwerk",
                              "fhir_ziel": "", "fhir_auth": "keine", "fhir_benutzer": "", "fhir_passwort_env": "",
-                             "fhir_token_env": "", "pruefablage": "", "stand_ordner": "", "inhalt_tage": 7, "metadaten_tage": 30, "speicherung": "PRODUCTION",
+                             "fhir_token_env": "", "pruefablage": "", "stellwerk_adresse": "", "bei_ablehnung": "abweisen", "stand_ordner": "", "inhalt_tage": 7, "metadaten_tage": 30, "speicherung": "PRODUCTION",
                              "verschluesseln": True}},
+    # Anmeldung: "keine" nur für den eigenen Rechner. Mit "oidc" melden sich Nutzer beim Identitätsdienst des Hauses an.
+    "anmeldung": {"art": "keine", "oeffentliche_adresse": "", "sitzung_stunden": 8, "leerlauf_minuten": 60,
+                  "dienst_token_env": "STELLWERK_DIENST_TOKEN",
+                  "oidc": {"aussteller": "", "client_id": "", "client_secret_env": "STELLWERK_OIDC_SECRET",
+                           "scopes": "openid profile email", "rollen_claim": "groups", "name_claim": "preferred_username",
+                           "ca": "", "proxy": ""},
+                  "rollen": {"lesen": [], "bearbeiten": [], "verwalten": []}},
+    # Datenbanken, mit denen sich der Dienst verbinden darf (Rechner oder Rechner:Port). Leer: keine Einschränkung ohne
+    # Anmeldung; mit Anmeldung dürfen dann nur Nutzer mit der Rolle „verwalten“ eine Datenbank im Netz eintragen.
+    "quellen": {"erlaubte_hosts": []},
     "ausgabe": "out",
     "arbeitsbereich": "arbeitsbereich",   # Ordner für die Datenbank (SQLite) und Altbestand aus Version 0.1
     "datenbank": "",                      # leer = sqlite:///<arbeitsbereich>/stellwerk.db

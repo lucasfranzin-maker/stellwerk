@@ -159,13 +159,16 @@ def cmd_schnittstelle(args, cfg) -> int:
         zeigen(ws.tree()["kinder"], [])
         return 0
     try:
-        k = schnittstelle.felder_kanal(ws, args.aufgabe, cfg)
+        k = schnittstelle.felder_oder_dokument_kanal(ws, args.aufgabe, cfg)
         for h in k.hinweise:
             print("Hinweis:", h, file=sys.stderr)
         if args.einrichten:
+            bisher = len(k.hinweise)
             was = schnittstelle.einrichten(k, cfg)
             store.audit("kommandozeile", "schnittstelle.eingerichtet", args.aufgabe, f"{was}, Kanal {k.id}")
             print(f"Kanal „{k.name}“ {was} und bereitgestellt (ID {k.id}).")
+            for h in k.hinweise[bisher:]:                          # was erst beim Einrichten auffiel
+                print("Hinweis:", h, file=sys.stderr)
             return 0
     except ApiError as exc:
         return _fail(str(exc))
@@ -241,14 +244,89 @@ def cmd_serve(args, cfg) -> int:
     from .app import create_app
     if args.out:
         cfg["ausgabe"] = args.out
-    if args.host not in ("127.0.0.1", "localhost", "::1"):
-        print("ACHTUNG  Der Dienst hat noch keine Anmeldung und verarbeitet Patientendaten. "
-              "Nur in einem geschützten Netz oder hinter einem Reverse-Proxy mit Anmeldung betreiben.", file=sys.stderr)
+    from . import auth
+    try:
+        anm = auth.einstellungen(cfg)
+    except auth.AuthError as exc:
+        return _fail(str(exc))
+    if anm is None and args.host not in ("127.0.0.1", "localhost", "::1"):
+        if not (args.ohne_anmeldung or os.environ.get("STELLWERK_OHNE_ANMELDUNG") == "1"):
+            return _fail("Ohne Anmeldung startet der Dienst nur auf 127.0.0.1, denn er verarbeitet Patientendaten. "
+                         "Entweder die Anmeldung einrichten (anmeldung.art: oidc, siehe docs/anmeldung.md) oder, wenn ein "
+                         "vorgeschalteter Proxy anmeldet oder der Port nur lokal veröffentlicht ist, mit --ohne-anmeldung starten.")
+        print("ACHTUNG  Der Dienst läuft ohne Anmeldung und verarbeitet Patientendaten. Jeder, der ihn erreicht, hat vollen Zugriff.",
+              file=sys.stderr)
     app = create_app(cfg)
-    print(f"Stellwerk läuft auf http://{args.host}:{args.port}  (Datenbank: {app.state.store.engine.dialect.name})")
+    wie = f"Anmeldung über {anm.aussteller}" if anm else "ohne Anmeldung"
+    tls = {}
+    if args.tls_zertifikat or args.tls_schluessel:
+        if not (args.tls_zertifikat and args.tls_schluessel):
+            return _fail("Für https braucht es beides: --tls-zertifikat und --tls-schluessel.")
+        for f in (args.tls_zertifikat, args.tls_schluessel):
+            if not Path(f).is_file():
+                return _fail(f"Datei nicht gefunden: {f}")
+        tls = {"ssl_certfile": args.tls_zertifikat, "ssl_keyfile": args.tls_schluessel}
+    print(f"Stellwerk läuft auf {'https' if tls else 'http'}://{args.host}:{args.port}  (Datenbank: {app.state.store.engine.dialect.name}, {wie})")
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning", access_log=False, proxy_headers=True,
-                forwarded_allow_ips=os.environ.get("STELLWERK_PROXY_IPS", "127.0.0.1"), server_header=False)
+                forwarded_allow_ips=os.environ.get("STELLWERK_PROXY_IPS", "127.0.0.1"), server_header=False, **tls)
     return 0
+
+
+def cmd_anmeldung(args, cfg) -> int:
+    """Einstellungen der Anmeldung prüfen und sagen, was im Identitätsdienst einzutragen ist. Gibt keine Geheimnisse aus."""
+    import time
+    from datetime import datetime
+
+    from . import auth
+    if args.sitzungen or args.beenden:
+        from .db import Store
+        store = Store(cfg["datenbank"])
+        store.migrate()
+        if args.beenden:
+            n = store.sitzungen_beenden(None if args.beenden == "alle" else args.beenden)
+            store.audit("cli", "sitzungen.beendet", args.beenden, f"{n} Sitzungen")
+            print(f"{n} Sitzung(en) beendet." + ("" if n else " Der Name muss so geschrieben sein wie in der Liste (stellwerk anmeldung --sitzungen)."))
+            return 0
+        zeilen = store.sitzungen(int(time.time()))
+        uhr = lambda t: datetime.fromtimestamp(t).strftime("%d.%m. %H:%M")       # noqa: E731
+        print(f"{len(zeilen)} laufende Sitzung(en)")
+        for z in zeilen:
+            print(f"  {z['name']:<30} {z['rolle']:<11} seit {uhr(z['seit'])}, zuletzt {uhr(z['zuletzt'])}, längstens bis {uhr(z['bis'])}")
+        return 0
+    try:
+        s = auth.einstellungen(cfg)
+        if s is None:
+            print("Anmeldung ist ausgeschaltet (anmeldung.art: keine). Der Dienst startet so nur auf 127.0.0.1.")
+            return 0
+        m = auth.Oidc(s).meta()
+    except auth.AuthError as exc:
+        return _fail(str(exc))
+    a = cfg["anmeldung"]
+    print("Anmeldung über OpenID Connect")
+    print(f"  Aussteller          {s.aussteller}  (erreichbar)")
+    print(f"  Client              {s.client_id}, " + ("mit Geheimnis" if s.client_secret else
+          f"ohne Geheimnis ({(a.get('oidc') or {}).get('client_secret_env') or 'STELLWERK_OIDC_SECRET'} ist leer): im Identitätsdienst als öffentlicher Client mit PKCE anlegen"))
+    print("  Im Identitätsdienst eintragen:")
+    print(f"    Redirect-URI      {s.antwort}")
+    print(f"    Nach dem Abmelden {s.adresse}/abgemeldet")
+    print(f"  Gruppen aus Claim   {s.rollen_claim}")
+    for r in auth.ROLLEN:
+        print(f"    {r:<17} {', '.join(s.rollen[r]) or '(keine Gruppe)'}")
+    print(f"  Sitzung             {s.sitzung_s // 3600} Stunden, endet nach {s.leerlauf_s // 60} Minuten ohne Anfrage")
+    print(f"  Dienst-Token        {'gesetzt' if s.dienst_token else 'nicht gesetzt: /v1/convert nur für angemeldete Nutzer'}")
+    rc = 0
+    algs = m.get("id_token_signing_alg_values_supported")
+    if isinstance(algs, list) and "RS256" not in algs:
+        print(f"FEHLER  Der Identitätsdienst signiert mit {', '.join(map(str, algs))}. Stellwerk prüft RS256; für diesen Client RS256 einstellen.", file=sys.stderr)
+        rc = 2
+    if isinstance(m.get("code_challenge_methods_supported"), list) and "S256" not in m["code_challenge_methods_supported"]:
+        print("FEHLER  Der Identitätsdienst nennt PKCE mit S256 nicht als unterstützt.", file=sys.stderr)
+        rc = 2
+    if not m.get("end_session_endpoint"):
+        print("HINWEIS  Der Identitätsdienst nennt keine Adresse zum Abmelden. „Abmelden“ beendet dann nur die Sitzung in Stellwerk.")
+    if not s.https:
+        print("HINWEIS  Die öffentliche Adresse beginnt mit http. Das geht nur zum Ausprobieren auf dem eigenen Rechner.")
+    return rc
 
 
 def cmd_mllp(args, cfg) -> int:
@@ -282,6 +360,8 @@ def cmd_bridgelink(args, cfg) -> int:
         if args.aktion == "einrichten":
             was = client.install(cid, xml)
             print(f"Kanal „{k.get('name')}“ {was} und bereitgestellt (BridgeLink {version}, ID {cid}).")
+            if client.pruner_hinweis():
+                print("Hinweis:", client.pruner_hinweis(), file=sys.stderr)
             soll = f":{k.get('port')}{k.get('pfad')}"
             if not str(z.get("ziel") or "").endswith(soll):
                 print(f"Noch einstellen: zustellung.ziel = http(s)://<bridgelink-host>{soll}")
@@ -293,6 +373,8 @@ def cmd_bridgelink(args, cfg) -> int:
               f"abgewiesen {st['abgewiesen']} (ohne Routing-Merkmal).")
         for d in st["ziele"]:
             print(f"  {d['name']}: gesendet {d['gesendet']}, Fehler {d['fehler']}, in Warteschlange {d['warteschlange']}")
+        if client.pruner_hinweis():
+            print("Hinweis:", client.pruner_hinweis(), file=sys.stderr)
         return 2 if st["fehler"] or st["zustand"] != "STARTED" else 0
     except bridgelink.BridgeLinkError as exc:
         return _fail(str(exc))
@@ -388,8 +470,16 @@ def main(argv: list[str] | None = None) -> int:
     h = sub.add_parser("serve", help="Workbench und HTTP-Schnittstelle starten")
     h.add_argument("--host", default="127.0.0.1")
     h.add_argument("--port", type=int, default=8080)
+    h.add_argument("--tls-zertifikat", metavar="DATEI", help="Zertifikat (PEM); mit --tls-schluessel spricht der Dienst selbst https")
+    h.add_argument("--tls-schluessel", metavar="DATEI", help="privater Schlüssel zum Zertifikat (PEM)")
+    h.add_argument("--ohne-anmeldung", action="store_true",
+                   help="ohne Anmeldung auch außerhalb von 127.0.0.1 starten (nur hinter einem Proxy, der selbst anmeldet)")
     common(h, False)
     h.set_defaults(fn=cmd_serve)
+    an = sub.add_parser("anmeldung", help="Einstellungen der Anmeldung prüfen (OpenID Connect)")
+    an.add_argument("--sitzungen", action="store_true", help="laufende Sitzungen zeigen")
+    an.add_argument("--beenden", metavar="NAME", help="Sitzungen eines Nutzers sofort beenden, mit „alle“ sämtliche")
+    an.set_defaults(fn=cmd_anmeldung)
     m = sub.add_parser("mllp", help="HL7 v2 per MLLP empfangen")
     m.add_argument("--host", default="127.0.0.1")
     m.add_argument("--port", type=int, default=6661)

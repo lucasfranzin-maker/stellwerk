@@ -63,8 +63,43 @@ bridgelink:
     fhir_benutzer:
     fhir_passwort_env:
     fhir_token_env:
+    stellwerk_adresse:      # so erreicht BridgeLink Stellwerk, für Kanäle von Dokument-Schnittstellen; https, http nur für localhost
+                            # (mit Anmeldung geht das Dienst-Token aus anmeldung.dienst_token_env mit)
     pruefablage:            # Ordner im BridgeLink-Server, Vorgabe /opt/bridgelink/appdata/stellwerk/pruefen
+    bei_ablehnung: abweisen # CDR lehnt ein Bundle dauerhaft ab (HTTP 400, 413, 415, 422): abweisen = nach <pruefablage>/abgelehnt, Rest läuft weiter;
+                            # warten = bleibt in der Warteschlange und hält alle folgenden auf (Reihenfolge bleibt)
     speicherung: PRODUCTION # Nachrichtenspeicherung in BridgeLink
     verschluesseln: true    # Nachrichteninhalte in BridgeLink verschlüsselt speichern
+    inhalt_tage: 7          # Aufbewahrung der Nachrichteninhalte; greift erst mit eingeschaltetem Data Pruner in BridgeLink
+    metadaten_tage: 30
+    stand_ordner:           # Ordner im BridgeLink-Server für die Fortschrittsmarken der Schnittstellen
+
+# Datenbanken der Quellsysteme, mit denen sich der Dienst verbinden darf. Mit Anmeldung unbedingt eintragen:
+# Sonst könnte eine Adresse auf einen fremden Rechner zeigen und ihm das Datenbankpasswort schicken.
+quellen:
+  erlaubte_hosts: []        # z. B. [kis-db.haus, lis-db.haus:1521]
+
+# Anmeldung. "keine" ist nur für den eigenen Rechner gedacht: Der Dienst startet dann nur auf 127.0.0.1.
+# Mit "oidc" melden sich Nutzer beim Identitätsdienst des Hauses an (Keycloak, AD FS, Entra ID). Siehe docs/anmeldung.md,
+# prüfen mit: stellwerk anmeldung
+anmeldung:
+  art: keine                # keine | oidc
+  oeffentliche_adresse:     # Adresse, unter der Nutzer Stellwerk aufrufen, z. B. https://stellwerk.haus
+  sitzung_stunden: 8        # danach neu anmelden, auch bei Aktivität
+  leerlauf_minuten: 60      # ohne Anfrage endet die Sitzung nach dieser Zeit
+  dienst_token_env: STELLWERK_DIENST_TOKEN    # Zugang für Kommunikationsserver zu /v1/convert (mind. 32 Zeichen)
+  oidc:
+    aussteller:             # z. B. https://login.haus/realms/klinik (genau wie der Dienst sich selbst nennt)
+    client_id:              # z. B. stellwerk
+    client_secret_env: STELLWERK_OIDC_SECRET
+    scopes: openid profile email
+    rollen_claim: groups    # Claim mit den Gruppen; auch realm_access.roles (Keycloak) oder roles (Entra ID)
+    name_claim: preferred_username
+    ca:                     # eigene CA-Datei, falls der Identitätsdienst ein Zertifikat des Hauses nutzt
+    proxy:                  # nur wenn der Identitätsdienst ausschließlich über einen Proxy erreichbar ist
+  rollen:                   # Gruppen des Identitätsdienstes je Rolle; jede Rolle schließt die davor ein
+    lesen: []               # ansehen
+    bearbeiten: []          # Aufgaben ändern, ausführen, Datenbanken erschließen, Übergabepaket ohne echte Zeilen
+    verwalten: []           # ans CDR senden, Kanäle in BridgeLink einrichten, Paket mit echten Zeilen, Audit-Protokoll
 
 ausgabe: out

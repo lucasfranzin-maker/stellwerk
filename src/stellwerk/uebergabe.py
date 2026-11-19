@@ -80,6 +80,8 @@ def synthetic_rows(cols: list[str], regeln: dict, rows: list[tuple]) -> tuple[li
     idx = {c: i for i, c in enumerate(cols)}
     ziel = {c: (regeln.get(c) or {}).get("ziel", "") for c in cols}
     werte = [c for c in cols if ziel[c] == "obs.wert"]
+    codespalte = next((c for c in cols if ziel[c] == "obs.code"), None)
+    tabelle = list(((regeln.get(codespalte) or {}).get("codes") or {}).items()) if codespalte else []
     komma = any("," in str(r[idx[c]]) for c in werte for r in rows if r[idx[c]] not in (None, ""))
     dez = (lambda s: s.replace(".", ",")) if komma else (lambda s: s)
     form: dict[str, str] = {}
@@ -90,12 +92,16 @@ def synthetic_rows(cols: list[str], regeln: dict, rows: list[tuple]) -> tuple[li
             form[c] = fmt or ("%d.%m.%Y" if ziel[c] == "patient.birthDate" else "%d.%m.%Y %H:%M")
             schreibweise[c] = text
 
-    def einheit(c: str) -> str:
+    def einheit(c: str, nr: int = 1) -> str:
+        if codespalte:
+            fest = (tabelle[(nr - 1) % len(tabelle)][1].get("einheit") or "").strip() if tabelle else ""
+            code = (tabelle[(nr - 1) % len(tabelle)][1].get("loinc") or "").strip() if tabelle else ""
+            return fest or (sorted(fieldmap._LOINC.get(code, ("", set()))[1]) or ["mg/dl"])[0]
         code = ((regeln.get((regeln.get(c) or {}).get("fuer") or "") or {}).get("loinc") or "").strip()
         erwartet = sorted(fieldmap._LOINC.get(code, ("", set()))[1])
         return erwartet[0] if erwartet else "mg/dl"
 
-    def zeile(nr: int, leer=(), wert=None, geschlecht="W", zeit=datetime(2026, 1, 15, 8, 30)) -> tuple:
+    def zeile(nr: int, leer=(), wert=None, geschlecht="W", zeit=datetime(2026, 1, 15, 8, 30), code=None) -> tuple:
         out = []
         for c in cols:
             z = ziel[c]
@@ -117,10 +123,12 @@ def synthetic_rows(cols: list[str], regeln: dict, rows: list[tuple]) -> tuple[li
                 v = f"T-000{nr}"
             elif z == "obs.zeit":
                 v = zeit.strftime(form[c])
+            elif z == "obs.code":
+                v = code if code is not None else tabelle[(nr - 1) % len(tabelle)][0]
             elif z == "obs.wert":
                 v = wert(c) if wert else dez(f"{werte.index(c) + 1}.10")
             elif z == "obs.einheit":
-                v = einheit(c)
+                v = einheit(c, nr)
             else:
                 v = "wird nicht übernommen"
             out.append(v)
@@ -144,6 +152,9 @@ def synthetic_rows(cols: list[str], regeln: dict, rows: list[tuple]) -> tuple[li
         ("05-ohne-patientennummer", "Patientennummer leer: Für diese Zeile entsteht kein Bundle.", zeile(5, leer=("patient.id",))),
         ("06-ohne-messwert", "Alle Messwerte leer: Für diese Zeile entsteht kein Bundle.", zeile(6, wert=lambda c: None)),
     ]
+    if codespalte:
+        faelle.append(("07-code-nicht-in-der-tabelle", "Der Analysecode steht nicht in der Codetabelle: Für diese Zeile entsteht kein Bundle, "
+                       "der Code wird gemeldet.", zeile(7, code="NICHT-IN-DER-TABELLE")))
     return faelle, schreibweise
 
 
@@ -308,6 +319,10 @@ def _felder(ws: Workspace, t: dict, cfg: dict, name: str, mit_daten: bool) -> di
         ns["auftrag"] = obs["identifier"][0]["system"]
     tz = cfg.get("zeitzone", "Europe/Berlin")
     einheit_von = {r.get("fuer"): c for c, r in regeln.items() if r["ziel"] == "obs.einheit" and r.get("fuer")}
+    codespalte = next((c for c, r in regeln.items() if r["ziel"] == "obs.code"), None)
+    if codespalte:                                       # Zeilenform: eine Einheitenspalte gilt für die eine Wertspalte
+        ecol = next((c for c, r in regeln.items() if r["ziel"] == "obs.einheit"), "")
+        einheit_von = {c: ecol for c, r in regeln.items() if r["ziel"] == "obs.wert" and ecol}
     offen_punkte = [{"code": x.code, "wo": x.where, "meldung": x.message if mit_daten else _ohne_werte(x.message), "was_tun": x.action}
                     for x in findings if x.severity == "pruefen"]
     status = "pruefen" if offen_punkte or vor else "ok"
@@ -326,8 +341,14 @@ def _felder(ws: Workspace, t: dict, cfg: dict, name: str, mit_daten: bool) -> di
                 e.update(loinc=code, anzeige=r.get("anzeige") or fieldmap._LOINC.get(code, ("",))[0],
                          einheit_spalte=einheit_von.get(c, ""), einheit_fest=fest,
                          einheit=" sonst ".join(x for x in (f"aus Spalte {einheit_von[c]}" if c in einheit_von else "", f"fest: {fest}" if fest else "") if x) or "keine")
+            if r["ziel"] == "obs.code":
+                e.update(codes=[{"code": k, "loinc": (v.get("loinc") or "").strip(),
+                                 "anzeige": v.get("anzeige") or fieldmap._LOINC.get((v.get("loinc") or "").strip(), ("",))[0],
+                                 "einheit_fest": (v.get("einheit") or "").strip()} for k, v in sorted((r.get("codes") or {}).items())],
+                         hinweis=f"Codetabelle mit {len(r.get('codes') or {})} Einträgen (siehe unten und zuordnung.json)")
             if r["ziel"] == "obs.einheit":
-                e["hinweis"] = f"Einheit zu {r.get('fuer')}" if r.get("fuer") else "keiner Wertspalte zugewiesen, wird nicht verwendet"
+                e["hinweis"] = (f"Einheit zu {r.get('fuer')}" if r.get("fuer") else "Einheit je Zeile" if codespalte
+                                else "keiner Wertspalte zugewiesen, wird nicht verwendet")
             if c in schreibweise:
                 e["hinweis"] = f"Schreibweise in der Quelle: {schreibweise[c]}"
         elif c in vor:
@@ -390,7 +411,17 @@ def _felder(ws: Workspace, t: dict, cfg: dict, name: str, mit_daten: bool) -> di
     if one("patient.birthDate"):
         c = one("patient.birthDate")
         R.append(f"Geburtsdatum (`{c}`, in der Quelle {schreibweise[c]}) als `JJJJ-MM-TT`: `{eins[c]}` wird `{pat.get('birthDate', '')}`. Leer: Element weglassen.")
-    R.append(f"Je gefüllter Messwert-Spalte eine Observation mit `status` `{obs['status']}`, `category` `laboratory` "
+    if codespalte:
+        wc = next(c for c, r in regeln.items() if r["ziel"] == "obs.wert")
+        R.append(f"Zeilenform: Jede Zeile enthält ein Ergebnis. Den Analysecode aus `{codespalte}` in der Codetabelle (unten und in `zuordnung.json`) "
+                 "nachschlagen, genau und mit Beachtung der Groß- und Kleinschreibung. Steht er dort, entsteht aus dem Wert in "
+                 f"`{wc}` eine Observation mit `status` `{obs['status']}`, `category` `laboratory` "
+                 "(`http://terminology.hl7.org/CodeSystem/observation-category`), `code.coding` mit `system` `http://loinc.org`, dem LOINC-Code der Tabelle und, "
+                 "falls die Tabelle eine Anzeige nennt, `display`; dazu `code.text` = Analysecode und `subject.reference` = `fullUrl` des Patienten "
+                 "im selben Bundle. Steht der Code nicht in der Tabelle oder ist er leer, oder ist der Wert leer: keine Observation, und der Code "
+                 "wird gemeldet (nie ein LOINC-Code geraten). Leer heißt überall: kein Wert oder nur Leerzeichen; Leerzeichen am Rand werden entfernt.")
+    else:
+      R.append(f"Je gefüllter Messwert-Spalte eine Observation mit `status` `{obs['status']}`, `category` `laboratory` "
              "(`http://terminology.hl7.org/CodeSystem/observation-category`), `code.coding` mit `system` `http://loinc.org`, dem LOINC-Code und, "
              "falls die Zuordnung eine Anzeige nennt, `display`; dazu `code.text` = Spaltenname und `subject.reference` = `fullUrl` des Patienten "
              "im selben Bundle. Leere Messwert-Spalte: keine Observation. Leer heißt überall: kein Wert oder nur Leerzeichen; "
@@ -399,7 +430,8 @@ def _felder(ws: Workspace, t: dict, cfg: dict, name: str, mit_daten: bool) -> di
              "Komma wird Punkt, Nachkommastellen bleiben (`1,10` wird `1.10`, nicht `1.1`). Viele JSON-Bibliotheken, auch JavaScript, schreiben `1.1`; "
              "dann die Zahl als Text in das fertige JSON einsetzen. Jeder andere Wert (`<0,6`, `positiv`) steht unverändert als `valueString`, "
              "gefolgt von Leerzeichen und Einheit, falls es eine gibt; `valueQuantity` entfällt dann.")
-    R.append("`valueQuantity.unit` kommt aus der zugeordneten Einheitenspalte, sonst aus der festen Einheit der Zuordnung, sonst fehlt es. "
+    R.append("`valueQuantity.unit` kommt aus der zugeordneten Einheitenspalte, sonst aus der festen Einheit "
+             + ("des Analysecodes in der Codetabelle" if codespalte else "der Zuordnung") + ", sonst fehlt es. "
              "Stellwerk setzt kein `system` und keinen `code` (UCUM) und prüft die Einheit nicht gegen UCUM.")
     if one("obs.zeit"):
         c = one("obs.zeit")
@@ -440,6 +472,11 @@ def _felder(ws: Workspace, t: dict, cfg: dict, name: str, mit_daten: bool) -> di
           for e in spalten]
     if any(e["stand"].startswith("Vorschlag") for e in spalten):
         L += ["", "Vorschläge sind nicht angenommen und deshalb in keinem erwarteten Bundle enthalten."]
+    if codespalte:
+        tab = sorted((regeln[codespalte].get("codes") or {}).items())
+        L += ["", f"## Codetabelle ({len(tab)} Analysecodes)", "", "| Analysecode | LOINC | Anzeige | feste Einheit |", "|---|---|---|---|"]
+        L += [f"| `{k}` | {(v.get('loinc') or '').strip()} | {v.get('anzeige') or fieldmap._LOINC.get((v.get('loinc') or '').strip(), ('',))[0]} | {(v.get('einheit') or '').strip()} |"
+              for k, v in tab]
     L += ["", "## Regeln für die Umsetzung", ""] + [f"{i}. {r}" for i, r in enumerate(R, 1)]
     L += ["", "## Testfälle", "", "Jede Zeile in `zeile.json` steht so da, wie die Datenbank sie liefert (alles als Text, leer ist `null`). "
           "`erwartet.json` mit dem Inhalt `null` heißt: Für diese Zeile darf kein Bundle entstehen.", ""]

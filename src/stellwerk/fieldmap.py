@@ -30,6 +30,7 @@ ZIELE = [
     ("obs.zeit", "Observation.effectiveDateTime", "Zeitpunkt der Probe oder Messung"),
     ("obs.wert", "Observation.valueQuantity.value", "Messwert (braucht einen LOINC-Code)"),
     ("obs.einheit", "Observation.valueQuantity.unit", "Einheit zu einem Messwert"),
+    ("obs.code", "Observation.code.coding.code", "Analysecode (Zeilenform: eine Zeile je Ergebnis, Codetabelle nötig)"),
     ("ignorieren", "–", "bewusst nicht übernehmen"),
 ]
 PFAD = {k: p for k, p, _ in ZIELE}
@@ -142,17 +143,35 @@ def build(columns: list[str], rows: list[tuple], rules: dict, cfg: dict, status:
                          "In stellwerk.yaml unter systeme eintragen, sonst findet das Zielsystem Patient und Fall nicht."))
 
     werte = by("obs.wert")
+    zeilenform = bool(one("obs.code"))
+    tabelle: dict[str, dict] = {}
+    if zeilenform:
+        tabelle = {str(k).strip(): v for k, v in (rules[one("obs.code")].get("codes") or {}).items() if str(k).strip() and isinstance(v, dict)}
+        if len(werte) > 1:
+            f.append(Finding("MAP_WERT_EINDEUTIG", FEHLER, "Zuordnung",
+                             f"In der Zeilenform gibt es genau eine Wertspalte, zugeordnet sind {len(werte)}: {', '.join(werte)}.",
+                             "Nur die Spalte mit dem Ergebnis als Messwert zuordnen, die anderen auf „nicht übernehmen“."))
+        if not tabelle:
+            f.append(Finding("MAP_CODETABELLE", FEHLER, one("obs.code"),
+                             "Die Codetabelle ist leer. Ohne sie weiß Stellwerk nicht, welcher LOINC-Code zu welchem Analysecode gehört.",
+                             "Mindestens einen Analysecode mit LOINC-Code eintragen."))
     if not one("patient.id"):
         f.append(Finding("MAP_PATIENT", FEHLER, "Zuordnung", "Keine Spalte ist als Patientennummer zugeordnet.",
                          "Der Spalte mit der Patientennummer das Ziel Patient.identifier geben."))
     if not werte:
         f.append(Finding("MAP_KEIN_WERT", FEHLER, "Zuordnung", "Keine Spalte ist als Messwert zugeordnet.",
                          "Mindestens einer Spalte das Ziel Observation.valueQuantity.value und einen LOINC-Code geben."))
-    for c in werte:
-        code = (rules[c].get("loinc") or "").strip()
-        if not re.match(r"^\d{1,7}-\d$", code):
-            f.append(Finding("MAP_LOINC", FEHLER, c, f"Der Messwert „{c}“ hat keinen gültig geformten LOINC-Code (erwartet z. B. 2160-0).",
-                             "LOINC-Code in der Zeile der Spalte eintragen."))
+    if zeilenform:
+        for k, e in tabelle.items():
+            if not re.match(r"^\d{1,7}-\d$", (e.get("loinc") or "").strip()):
+                f.append(Finding("MAP_LOINC", FEHLER, k, f"Der Analysecode „{k}“ hat keinen gültig geformten LOINC-Code (erwartet z. B. 2160-0).",
+                                 "LOINC-Code in der Codetabelle eintragen."))
+    else:
+        for c in werte:
+            code = (rules[c].get("loinc") or "").strip()
+            if not re.match(r"^\d{1,7}-\d$", code):
+                f.append(Finding("MAP_LOINC", FEHLER, c, f"Der Messwert „{c}“ hat keinen gültig geformten LOINC-Code (erwartet z. B. 2160-0).",
+                                 "LOINC-Code in der Zeile der Spalte eintragen."))
     offen = [c for c in columns if c not in rules]
     if offen:
         f.append(Finding("MAP_OFFEN", PRUEFEN, "Zuordnung",
@@ -175,9 +194,20 @@ def build(columns: list[str], rows: list[tuple], rules: dict, cfg: dict, status:
                          "Die Spalte mit Abnahme- oder Messzeit zuordnen."))
 
     einheit_von = {r.get("fuer"): c for c, r in rules.items() if r["ziel"] == "obs.einheit" and r.get("fuer")}
-    text: dict[str, list[str]] = {c: [] for c in werte}
-    leer = {c: 0 for c in werte}
-    einheiten: dict[str, dict[str, int]] = {c: {} for c in werte}
+    # Messgrößen: Schlüssel -> (Wertspalte, Einheitenspalte, feste Einheit, LOINC, Anzeige). Breite Tabelle: je Wertspalte eine,
+    # Zeilenform: je Analysecode der Codetabelle eine, gelesen aus der einen Wertspalte.
+    if zeilenform:
+        ecol = one("obs.einheit")
+        groessen = {k: (werte[0], ecol, (e.get("einheit") or "").strip(), e["loinc"].strip(), e.get("anzeige") or _LOINC.get(e["loinc"].strip(), ("",))[0])
+                    for k, e in tabelle.items()}
+    else:
+        groessen = {c: (c, einheit_von.get(c), (rules[c].get("einheit") or "").strip(), rules[c]["loinc"].strip(),
+                        rules[c].get("anzeige") or _LOINC.get(rules[c]["loinc"].strip(), ("",))[0]) for c in werte}
+    text: dict[str, list[str]] = {c: [] for c in groessen}
+    leer = {c: 0 for c in groessen}
+    einheiten: dict[str, dict[str, int]] = {c: {} for c in groessen}
+    code_unbekannt: dict[str, int] = {}
+    code_leer = 0
     sex_unbekannt: dict[str, int] = {}
     datum_kaputt = 0
     bundles: list[dict | None] = []
@@ -217,24 +247,34 @@ def build(columns: list[str], rows: list[tuple], rules: dict, cfg: dict, status:
         if one("obs.zeit") and cell(row, one("obs.zeit")) and not zeit:
             datum_kaputt += 1
         fall = cell(row, one("fall.id"))
-        for c in werte:
-            raw = cell(row, c)
+        if zeilenform:
+            k = cell(row, one("obs.code"))
+            if not k:
+                code_leer += 1
+                schluessel = []
+            elif k not in groessen:
+                code_unbekannt[k] = code_unbekannt.get(k, 0) + 1
+                schluessel = []
+            else:
+                schluessel = [k]
+        else:
+            schluessel = list(groessen)
+        for c in schluessel:
+            wcol, ecol_c, fest, code, anzeige = groessen[c]
+            raw = cell(row, wcol)
             if not raw:
                 leer[c] += 1
                 continue
-            r = rules[c]
-            code = r["loinc"].strip()
             obs: dict = {"resourceType": "Observation", "status": status,
                          "category": [{"coding": [{"system": "http://terminology.hl7.org/CodeSystem/observation-category", "code": "laboratory"}]}],
-                         "code": {"coding": [{"system": "http://loinc.org", "code": code,
-                                              **({"display": r.get("anzeige") or _LOINC.get(code, ("",))[0]} if (r.get("anzeige") or code in _LOINC) else {})}],
+                         "code": {"coding": [{"system": "http://loinc.org", "code": code, **({"display": anzeige} if anzeige else {})}],
                                   "text": c},
                          "subject": {"reference": pat_url}}
             if fall:
                 obs["encounter"] = {"identifier": {"type": {"coding": [{"system": V2_0203, "code": "VN"}]}, "system": sys["fall"], "value": fall}}
             if zeit:
                 obs["effectiveDateTime"] = zeit
-            unit = cell(row, einheit_von.get(c)) or (r.get("einheit") or "").strip()
+            unit = cell(row, ecol_c) or fest
             if unit:
                 einheiten[c][unit] = einheiten[c].get(unit, 0) + 1
             if _ZAHL.match(raw):
@@ -260,7 +300,7 @@ def build(columns: list[str], rows: list[tuple], rules: dict, cfg: dict, status:
         f.append(Finding("MAP_ZEILE_LEER", PRUEFEN, "Zeilen",
                          f"{zahl(ohne, 'Zeile ergibt', 'Zeilen ergeben')} kein Bundle (Patientennummer oder alle Messwerte leer).",
                          "Abfrage prüfen oder solche Zeilen dort ausschließen."))
-    for c in werte:
+    for c in groessen:
         n_text = len(text.get("#" + c, []))
         if n_text:
             f.append(Finding(
@@ -280,13 +320,23 @@ def build(columns: list[str], rows: list[tuple], rules: dict, cfg: dict, status:
         elif not units:
             f.append(Finding("MAP_OHNE_EINHEIT", PRUEFEN, c, "Zu diesem Messwert gibt es keine Einheit.",
                              "Einheitenspalte zuordnen oder eine feste Einheit eintragen, wenn die Quelle immer dieselbe liefert."))
-        erwartet = _LOINC.get(rules[c]["loinc"].strip(), ("", set()))[1]
+        erwartet = _LOINC.get(groessen[c][3], ("", set()))[1]
         fremd = [u for u in units if erwartet and u.lower().replace("μ", "µ") not in erwartet]
         if fremd:
             f.append(Finding(
                 "MAP_LOINC_EINHEIT", PRUEFEN, c,
-                f"LOINC {rules[c]['loinc']} passt zur Einheit {', '.join(sorted(erwartet))}; geliefert wird {', '.join(fremd)}.",
+                f"LOINC {groessen[c][3]} passt zur Einheit {', '.join(sorted(erwartet))}; geliefert wird {', '.join(fremd)}.",
                 "LOINC-Code prüfen. Für andere Einheiten gibt es meist einen eigenen Code."))
+    if code_unbekannt:
+        n = sum(code_unbekannt.values())
+        bsp = sorted(code_unbekannt.items(), key=lambda x: (-x[1], x[0]))[:5]
+        f.append(Finding("MAP_CODE_UNBEKANNT", PRUEFEN, one("obs.code"),
+                         f"{zahl(n, 'Zeile hat', 'Zeilen haben')} einen Analysecode, der nicht in der Codetabelle steht ("
+                         + ", ".join(f"„{k}“ ({v}×)" for k, v in bsp) + (" …" if len(code_unbekannt) > 5 else "") + "). Dafür entsteht keine Observation.",
+                         "Die Codes in die Codetabelle aufnehmen. Stellwerk rät keinen LOINC-Code."))
+    if code_leer:
+        f.append(Finding("MAP_CODE_LEER", PRUEFEN, one("obs.code"), f"{zahl(code_leer, 'Zeile hat', 'Zeilen haben')} keinen Analysecode. Dafür entsteht keine Observation.",
+                         "Abfrage prüfen oder solche Zeilen dort ausschließen."))
     if sex_unbekannt:
         f.append(Finding("MAP_GESCHLECHT", PRUEFEN, one("patient.gender"),
                          "Unbekannte Geschlechtscodes: " + ", ".join(f"„{k}“ ({v}×)" for k, v in sex_unbekannt.items())

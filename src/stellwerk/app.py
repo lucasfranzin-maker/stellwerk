@@ -1,7 +1,7 @@
 """HTTP-Dienst (FastAPI): Workbench, Schnittstelle für Kommunikationsserver, Betriebsendpunkte.
 
 Pfade wie in Version 0.1, damit Oberfläche und Anbindungen unverändert weiterlaufen.
-Ohne Anmeldung (kommt mit OIDC): nur an localhost binden oder hinter einen Proxy mit Anmeldung stellen.
+Anmeldung über OpenID Connect (auth.py). Ohne Anmeldung (anmeldung.art: keine) nur an localhost binden.
 """
 from __future__ import annotations
 
@@ -9,11 +9,12 @@ import logging
 import re
 import time
 from importlib import resources
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import __version__, workbench
+from . import __version__, auth, workbench
 from .db import Store, import_files
 from .fieldmap import dump_json
 from .pipeline import deliver, ingest, make_llm, process, write_outputs
@@ -50,7 +51,7 @@ document.getElementById('f').addEventListener('submit', async e => {
   const file = document.getElementById('datei').files[0]; const q = new URLSearchParams({name: file.name});
   for (const k of ['vorlage','patient_id','fall','dokument_id']) { const v = document.getElementById(k).value; if (v) q.set(k, v); }
   s.textContent = 'Wird verarbeitet … (gescannte Seiten brauchen einige Sekunden)';
-  try { const resp = await fetch('/v1/convert?' + q, {method:'POST', headers:{'Accept':'text/html'}, body: file});
+  try { const resp = await fetch('/v1/convert?' + q, {method:'POST', headers:{'Accept':'text/html','X-Stellwerk-Anfrage':'1'}, body: file});
     r.srcdoc = await resp.text(); r.hidden = false; s.textContent = ''; }
   catch (err) { s.textContent = 'Fehlgeschlagen: ' + err; }
 });
@@ -67,9 +68,10 @@ class JSONOut(JSONResponse):
         return dump_json(content).encode("utf-8")
 
 
-def create_app(cfg: dict, store: Store | None = None) -> FastAPI:
+def create_app(cfg: dict, store: Store | None = None, oidc=None) -> FastAPI:
     store = store or Store(cfg["datenbank"])
     store.migrate()
+    wache = auth.Wache(cfg, store, oidc)
     alt = cfg.get("arbeitsbereich")
     if alt:
         n = import_files(store, alt)
@@ -82,14 +84,46 @@ def create_app(cfg: dict, store: Store | None = None) -> FastAPI:
     app.state.store = store
 
     def wer(request: Request) -> str:
-        return "lokal"                                          # wird mit der Anmeldung durch den Nutzer ersetzt
+        return request.state.ich.name
 
-    @app.middleware("http")
-    async def guard(request: Request, call_next):
+    def braucht(request: Request, rolle: str) -> None:
+        """Für Rechte, die von der Anfrage abhängen und nicht nur vom Pfad."""
+        if not auth.hat(request.state.ich.rollen, rolle):
+            raise workbench.ApiError(403, f"Dafür braucht es die Rolle „{rolle}“.")
+
+    def db_bisher(tid: str) -> str:
+        try:
+            t = ws.task(tid)
+        except workbench.ApiError:
+            return ""
+        return str(t.get("db") or "") if t.get("art") == "sql" else ""
+
+    def db_pruefen(request: Request, db: str) -> None:
+        workbench.check_db_target(cfg, db, auth.hat(request.state.ich.rollen, "verwalten"), wache.aktiv)
+
+    def will_seite(request: Request) -> bool:
+        return request.method == "GET" and not request.url.path.startswith(("/api/", "/v1/")) \
+            and "text/html" in (request.headers.get("accept") or "")
+
+    async def einlass(request: Request, call_next):
         n = request.headers.get("content-length")
         if n and n.isdigit() and int(n) > MAX_BYTES:
             return JSONOut({"fehler": f"Datei größer als {MAX_BYTES // 1024 // 1024} MB."}, status_code=413)
-        resp = await call_next(request)
+        try:
+            request.state.ich = wache.pruefen(request.method, request.url.path, request.cookies, request.headers)
+        except auth.Abgelehnt as exc:
+            if exc.code == 401 and will_seite(request):
+                ziel = request.url.path + ("?" + request.url.query if request.url.query else "")
+                return RedirectResponse("/anmelden?" + urlencode({"ziel": ziel}), status_code=302)
+            if will_seite(request):
+                return HTMLResponse(auth.seite("Kein Zugriff", str(exc), "Mit anderem Konto anmelden", "/anmelden?neu=1"), status_code=exc.code)
+            extra = {"anmelden": "/anmelden"} if exc.code == 401 else {}
+            return JSONOut({"fehler": str(exc), **extra}, status_code=exc.code)
+        return await call_next(request)
+
+    @app.middleware("http")
+    async def guard(request: Request, call_next):
+        resp = await einlass(request, call_next)
         h = resp.headers
         h.setdefault("Content-Security-Policy", CSP)
         h["X-Content-Type-Options"] = "nosniff"
@@ -97,6 +131,8 @@ def create_app(cfg: dict, store: Store | None = None) -> FastAPI:
         h["X-Frame-Options"] = "DENY"
         h["Cross-Origin-Opener-Policy"] = "same-origin"
         h["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        if wache.aktiv and wache.s.https:
+            h["Strict-Transport-Security"] = "max-age=31536000"
         if not request.url.path.startswith("/fonts/"):
             h["Cache-Control"] = "no-store"
         return resp
@@ -126,6 +162,57 @@ def create_app(cfg: dict, store: Store | None = None) -> FastAPI:
         if not isinstance(val, dict):
             raise workbench.ApiError(400, "JSON-Objekt erwartet.")
         return val
+
+    # --- Anmeldung
+    @app.get("/api/ich")
+    def ich(request: Request):
+        i = request.state.ich
+        return {"anmeldung": "oidc" if wache.aktiv else "keine", "angemeldet": i.art in ("nutzer", "dienst", "lokal"),
+                "name": i.name, "rollen": i.rollen}
+
+    @app.get("/anmelden")
+    def anmelden(ziel: str = "/", neu: int = 0):
+        if not wache.aktiv:
+            return RedirectResponse("/", status_code=302)
+        try:
+            url, token = wache.beginnen(ziel, bool(neu))
+        except auth.AuthError as exc:
+            log.error("Anmeldung nicht möglich: %s", exc)
+            return HTMLResponse(auth.seite("Anmeldung nicht möglich", str(exc), "Erneut versuchen"), status_code=502)
+        resp = RedirectResponse(url, status_code=302)
+        resp.headers.append("Set-Cookie", wache.cookie(wache.s.cookie_offen, token, 600))
+        return resp
+
+    @app.get("/anmelden/antwort")
+    def anmelden_antwort(request: Request):
+        if not wache.aktiv:
+            return RedirectResponse("/", status_code=302)
+        try:
+            token, ziel, _ = wache.abschliessen(request.cookies.get(wache.s.cookie_offen), dict(request.query_params))
+        except auth.Abgelehnt as exc:
+            resp = HTMLResponse(auth.seite("Kein Zugriff", str(exc), "Mit anderem Konto anmelden", "/anmelden?neu=1"), status_code=403)
+        except auth.AuthError as exc:
+            log.warning("Anmeldung fehlgeschlagen: %s", exc)
+            resp = HTMLResponse(auth.seite("Anmeldung fehlgeschlagen", str(exc), "Erneut anmelden"), status_code=400)
+        else:
+            resp = RedirectResponse(ziel, status_code=303)
+            resp.headers.append("Set-Cookie", wache.cookie(wache.s.cookie, token, wache.s.sitzung_s))
+        resp.headers.append("Set-Cookie", wache.cookie(wache.s.cookie_offen, "", 0))
+        return resp
+
+    @app.post("/abmelden")
+    def abmelden(request: Request):
+        weiter = wache.abmelden(request.cookies)
+        resp = JSONOut({"weiter": weiter})
+        if wache.aktiv:
+            resp.headers.append("Set-Cookie", wache.cookie(wache.s.cookie, "", 0))
+        return resp
+
+    @app.get("/abgemeldet", response_class=HTMLResponse)
+    def abgemeldet(request: Request):
+        if request.state.ich.art in ("nutzer", "lokal"):          # die Seite beendet nichts; wer noch angemeldet ist, geht zurück
+            return RedirectResponse("/", status_code=302)
+        return HTMLResponse(auth.seite("Abgemeldet", "Ihre Sitzung in Stellwerk ist beendet."))
 
     # --- Seiten
     @app.get("/", response_class=HTMLResponse)
@@ -181,7 +268,10 @@ def create_app(cfg: dict, store: Store | None = None) -> FastAPI:
 
     @app.put("/api/aufgabe/{tid}")
     async def aufgabe_speichern(tid: str, request: Request):
-        out = ws.save_task(tid, await json_body(request))
+        b = await json_body(request)
+        if b.get("art") == "sql" and str(b.get("db") or "") != db_bisher(tid):
+            db_pruefen(request, str(b.get("db") or ""))
+        out = ws.save_task(tid, b)
         store.audit(wer(request), "aufgabe.gespeichert", tid)
         return out
 
@@ -238,6 +328,8 @@ def create_app(cfg: dict, store: Store | None = None) -> FastAPI:
     @app.get("/api/aufgabe/{tid}/uebergabe")
     def uebergabe_paket(tid: str, request: Request, daten: int = 0):
         from . import uebergabe
+        if daten:
+            braucht(request, "verwalten")           # echte Zeilen verlassen damit das System
         name, data = uebergabe.build_package(ws, tid, cfg, bool(daten))
         store.audit(wer(request), "uebergabe.erzeugt", tid, "mit echten Zeilen (Patientendaten)" if daten else "ohne Patientendaten")
         return Response(data, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{name}"'})
@@ -247,7 +339,7 @@ def create_app(cfg: dict, store: Store | None = None) -> FastAPI:
         """Prüfen, ob sich aus der Aufgabe ein BridgeLink-Kanal bauen lässt. Das Kanal-XML enthält Passwörter und wird nie ausgeliefert."""
         from . import schnittstelle
         try:
-            k = schnittstelle.felder_kanal(ws, tid, cfg)
+            k = schnittstelle.felder_oder_dokument_kanal(ws, tid, cfg)
         except workbench.ApiError as exc:
             return {"bereit": False, "meldung": str(exc), "hinweise": [], "bridgelink": bool((cfg.get("bridgelink") or {}).get("api"))}
         return {"bereit": True, "meldung": "", "name": k.name, "hinweise": k.hinweise,
@@ -256,7 +348,7 @@ def create_app(cfg: dict, store: Store | None = None) -> FastAPI:
     @app.post("/api/aufgabe/{tid}/kanal")
     def kanal_einrichten(tid: str, request: Request):
         from . import schnittstelle
-        k = schnittstelle.felder_kanal(ws, tid, cfg)
+        k = schnittstelle.felder_oder_dokument_kanal(ws, tid, cfg)
         was = schnittstelle.einrichten(k, cfg)
         store.audit(wer(request), "schnittstelle.eingerichtet", tid, f"{was}, Kanal {k.id}")
         return {"was": was, "id": k.id, "name": k.name, "hinweise": k.hinweise}
@@ -265,6 +357,8 @@ def create_app(cfg: dict, store: Store | None = None) -> FastAPI:
     async def erschliessen(request: Request):
         b = await json_body(request)
         db = str(b.get("db") or "")
+        if not (b.get("aufgabe") and db == db_bisher(str(b["aufgabe"]))):     # die gespeicherte Adresse der Aufgabe ist schon geprüft
+            db_pruefen(request, db)
         out = workbench.discover(ws, cfg, db, b.get("entscheidungen"))
         from .sqlsource import public_url
         store.audit(wer(request), "datenbank.erschlossen", public_url(db)[:200])
@@ -273,6 +367,11 @@ def create_app(cfg: dict, store: Store | None = None) -> FastAPI:
     @app.get("/api/laeufe")
     def laeufe(limit: int = 200, aufgabe: str | None = None):
         return {"laeufe": store.runs(min(max(limit, 1), 1000), aufgabe)}
+
+    @app.get("/api/kennzahlen")
+    def kennzahlen(stunden: int = 24):
+        """Läufe, Status und Dauer je Kanal und Quelle (aus dem Laufprotokoll, ohne Patientendaten)."""
+        return store.kennzahlen(min(max(stunden, 1), 24 * 90))
 
     @app.get("/api/audit")
     def audit(limit: int = 200):

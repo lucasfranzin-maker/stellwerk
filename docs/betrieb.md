@@ -1,7 +1,7 @@
 # Betrieb
 
-Stand 0.2. Der Dienst hat **noch keine Anmeldung**. Bis OIDC eingebaut ist, nur auf `127.0.0.1` betreiben
-oder hinter einem Reverse-Proxy, der selbst anmeldet.
+Stand 0.3. Ohne eingerichtete Anmeldung startet der Dienst **nur auf `127.0.0.1`**. Fürs Netz die Anmeldung über den
+Identitätsdienst des Hauses einrichten: [anmeldung.md](anmeldung.md).
 
 ## Im Haus ohne Container
 
@@ -14,13 +14,22 @@ stellwerk serve                           # Workbench auf http://127.0.0.1:8080
 stellwerk mllp --port 6661                # optional: HL7-Empfang
 ```
 
+Im Netz, mit Anmeldung und https (Zertifikat des Hauses):
+
+```bash
+stellwerk anmeldung                       # Einstellungen prüfen, nennt die Adressen für den Identitätsdienst
+stellwerk serve --host 0.0.0.0 --port 8443 --tls-zertifikat cert.pem --tls-schluessel key.pem
+```
+
+Der MLLP-Empfang kennt keine Anmeldung. Ihn nur in einem geschützten Netz oder hinter dem Kommunikationsserver betreiben.
+
 Ohne Internet: Pakete vorher mit `pip download 'stellwerk[ocr]' -d pakete/` holen und im Haus mit
 `pip install --no-index --find-links pakete/ stellwerk[ocr]` installieren. Schriften und Oberfläche liegen im Paket.
 
 ## Mit Docker
 
 ```bash
-docker build -t stellwerk:0.2 .
+docker build -t stellwerk:0.3 .
 docker compose up -d                                        # SQLite im Volume
 POSTGRES_PASSWORD=... docker compose --profile postgres up -d   # mit PostgreSQL
 ```
@@ -64,6 +73,9 @@ Ein Arbeitsbereich aus Version 0.1 (`baum.json`, `aufgaben/`) wird beim ersten S
 | `STELLWERK_LLM_URL`, `STELLWERK_LLM_MODELL`, `STELLWERK_LLM_API`, `STELLWERK_LLM_KEY` | Sprachmodell |
 | `STELLWERK_DB_*` | Passwörter für Datenbankadressen (Platzhalter) |
 | `STELLWERK_PROXY_IPS` | Adressen vertrauenswürdiger Reverse-Proxys (Vorgabe `127.0.0.1`) |
+| `STELLWERK_OIDC_SECRET` | Geheimnis des Clients beim Identitätsdienst |
+| `STELLWERK_DIENST_TOKEN` | Zugang für Kommunikationsserver zu `/v1/convert` (mindestens 32 Zeichen) |
+| `STELLWERK_OHNE_ANMELDUNG` | `1` erlaubt den Start ohne Anmeldung außerhalb von `127.0.0.1` (nur hinter einem Proxy, der selbst anmeldet, oder wenn der Port nur lokal veröffentlicht ist) |
 
 ## Betriebsendpunkte
 
@@ -72,5 +84,12 @@ Ein Arbeitsbereich aus Version 0.1 (`baum.json`, `aufgaben/`) wird beim ersten S
 | `GET /healthz` | Prozess lebt |
 | `GET /readyz` | Datenbank erreichbar (503 sonst) |
 | `GET /api/laeufe` | Laufprotokoll ohne Patientendaten: Kanal, Quelle, Status, Dauer, Befundcodes |
-| `GET /api/audit` | Wer hat was geändert (noch ohne echte Nutzer, siehe Anmeldung) |
+| `GET /api/audit` | Wer hat was geändert, mit dem Namen aus der Anmeldung (Rolle `verwalten`) |
 | `GET /api/openapi.json` | Beschreibung der Schnittstelle |
+
+## Betrieb beobachten
+
+In der Workbench zeigt „Betrieb“ (links unten) je Kanal und Quelle die Läufe der letzten 24 Stunden, 7 oder 30 Tage: Zahl der Läufe, in
+Ordnung, zu prüfen, Fehler, Median und 95. Perzentil der Dauer, letzter Lauf und die häufigsten Befundcodes. Dieselben Zahlen liefert
+`GET /api/kennzahlen?stunden=…` (Rolle `lesen`). Es sind nur Läufe von Stellwerk selbst (Workbench, `/v1/convert`, MLLP); die Kanäle in
+BridgeLink beobachtet man im Dashboard von BridgeLink. Schwellen und Benachrichtigungen gibt es noch nicht.

@@ -88,10 +88,89 @@ def _filter(name: str, script: str) -> str:
             f'<script>{escape(script)}</script></com.mirth.connect.plugins.javascriptrule.JavaScriptRule></elements></filter>')
 
 
-def _connector(meta_id: int, name: str, props: str, transport: str, filt: str) -> str:
+def _connector(meta_id: int, name: str, props: str, transport: str, filt: str, antwort_skript: str = "") -> str:
+    antwort = _raw("responseTransformer")
+    if antwort_skript:
+        antwort = antwort.replace("<elements/>", '<elements><com.mirth.connect.plugins.javascriptstep.JavaScriptStep version="{v}">'
+                                  '<name>Dauerhafte Ablehnung erkennen</name><sequenceNumber>0</sequenceNumber><enabled>true</enabled><script>'
+                                  + escape(antwort_skript) + '</script></com.mirth.connect.plugins.javascriptstep.JavaScriptStep></elements>')
     return (f'<connector version="{{v}}"><metaDataId>{meta_id}</metaDataId><name>{escape(name)}</name>{props}'
-            f'{_raw("transformer")}{_raw("responseTransformer")}{filt}<transportName>{transport}</transportName>'
+            f'{_raw("transformer")}{antwort}{filt}<transportName>{transport}</transportName>'
             '<mode>DESTINATION</mode><enabled>true</enabled><waitForPrevious>true</waitForPrevious></connector>')
+
+
+# HTTP-Antworten, bei denen das CDR das Bundle selbst ablehnt. Eine Wiederholung ändert daran nichts. Alles andere (401, 403,
+# 404, 408, 429, 5xx, kein Netz) liegt an Einrichtung oder Ausfall und wird mit der Warteschlange wiederholt.
+ABLEHNUNG_CODES = (400, 413, 415, 422)
+
+_ABLEHNUNG = """\
+var CODES = %s, ORDNER = %s;
+var code = Number(connectorMap.get('responseStatusCode') || 0);
+if (CODES.indexOf(code) >= 0) {
+  responseStatus = ERROR;
+  var id = String(connectorMessage.getMessageId());
+  var bundle = channelMap.get('stellwerkBundle');
+  if (bundle === null || bundle === undefined) { bundle = String(connectorMessage.getEncodedData()); }
+  var text = 'Das CDR hat das Bundle mit HTTP ' + code + ' abgelehnt. Eine Wiederholung ändert daran nichts, deshalb wurde es nicht erneut ' +
+             'versucht und die folgenden Bundles werden nicht aufgehalten.\\nAntwort des CDR: in BridgeLink am Dashboard bei Nachricht ' + id +
+             ' (Fehlerprotokoll). Sie wird hier nicht abgelegt, weil sie Angaben aus dem Bundle enthalten kann.\\n' +
+             'Bundle: ' + id + '.json in diesem Ordner. Nach der Korrektur der Quelle oder der Zuordnung erneut zustellen.';
+  var dir = new java.io.File(ORDNER);
+  dir.mkdirs();
+  function schreiben(name, inhalt) {
+    var tmp = new java.io.File(dir, name + '.tmp'), out = new java.io.OutputStreamWriter(new java.io.FileOutputStream(tmp), 'UTF-8');
+    try { out.write(inhalt); } finally { out.close(); }
+    tmp.renameTo(new java.io.File(dir, name));
+  }
+  schreiben(id + '.json', String(bundle));
+  schreiben(id + '.abgelehnt.txt', text);
+  responseStatusMessage = 'Vom CDR abgelehnt (HTTP ' + code + '), Bundle in ' + ORDNER;
+}
+"""
+
+
+_ABLEHNUNG_DOKUMENT = """\
+var CODES = %s, ORDNER = %s;
+var code = Number(connectorMap.get('responseStatusCode') || 0);
+if (CODES.indexOf(code) >= 0) {
+  responseStatus = ERROR;
+  var id = String(connectorMessage.getMessageId());
+  var roh = String(connectorMessage.getEncodedData());
+  var endung = '';
+  var orig = sourceMap.get('originalFilename');
+  if (orig !== null && orig !== undefined) {
+    var m = /\\.([A-Za-z0-9]{1,8})$/.exec(String(orig));
+    if (m) { endung = '.' + m[1].toLowerCase(); }
+  }
+  var text = 'Stellwerk hat das Dokument mit HTTP ' + code + ' abgelehnt. Eine Wiederholung ändert daran nichts, deshalb wurde es nicht erneut ' +
+             'versucht und die folgenden Dokumente werden nicht aufgehalten.\\nBefunde: in BridgeLink am Dashboard bei Nachricht ' + id +
+             ' (Fehlerprotokoll) und im Laufprotokoll von Stellwerk. Sie werden hier nicht abgelegt, weil sie Angaben aus dem Dokument enthalten können.\\n' +
+             'Dokument: ' + id + endung + ' in diesem Ordner. Nach der Korrektur erneut in den Eingangsordner legen.';
+  var dir = new java.io.File(ORDNER);
+  dir.mkdirs();
+  var tmp = new java.io.File(dir, id + endung + '.tmp'), out = new java.io.FileOutputStream(tmp);
+  try { out.write(java.util.Base64.getMimeDecoder().decode(roh)); } finally { out.close(); }
+  tmp.renameTo(new java.io.File(dir, id + endung));
+  var t2 = new java.io.File(dir, id + '.abgelehnt.txt.tmp'), w = new java.io.OutputStreamWriter(new java.io.FileOutputStream(t2), 'UTF-8');
+  try { w.write(text); } finally { w.close(); }
+  t2.renameTo(new java.io.File(dir, id + '.abgelehnt.txt'));
+  responseStatusMessage = 'Von Stellwerk abgelehnt (HTTP ' + code + '), Dokument in ' + ORDNER;
+}
+"""
+
+
+def ablehnung_skript(k: dict, ordner: str, dokument: bool = False) -> str:
+    """Antwort-Transformation für das FHIR-Ziel: dauerhaft abgelehnte Bundles aus der Warteschlange nehmen und ablegen.
+
+    k["bei_ablehnung"]: "abweisen" (Vorgabe) oder "warten". Bei "warten" bleibt ein abgelehntes Bundle in der Warteschlange und
+    hält alle folgenden auf, bis jemand eingreift; das erhält die Reihenfolge."""
+    modus = k.get("bei_ablehnung") or "abweisen"
+    if modus not in ("abweisen", "warten"):
+        raise BridgeLinkError(f"bridgelink.kanal.bei_ablehnung kennt nur „abweisen“ und „warten“, nicht „{modus}“.")
+    if modus == "warten":
+        return ""
+    vorlage = _ABLEHNUNG_DOKUMENT if dokument else _ABLEHNUNG
+    return vorlage % (json.dumps(list(ABLEHNUNG_CODES)), json.dumps(ordner.rstrip("/") + "/abgelehnt"))
 
 
 def fhir_ziel_props(k: dict) -> str:
@@ -121,6 +200,41 @@ def fhir_ziel_props(k: dict) -> str:
         f'<usePreemptiveAuthentication>true</usePreemptiveAuthentication><username>{escape(user)}</username><password>{escape(pw)}</password>'
         '<content>${message.encodedData}</content><contentType>application/fhir+json</contentType><dataTypeBinary>false</dataTypeBinary>'
         '<charset>UTF-8</charset><socketTimeout>60000</socketTimeout></properties>')
+
+
+def stellwerk_ziel_props(adresse: str, params: dict[str, str], token: str) -> str:
+    """HTTP-Sender zu Stellwerk (POST /v1/convert): die Quelldatei unverändert im Body, Dienst-Token im Kopf, Warteschlange."""
+    headers = '<headers class="linked-hash-map"><entry><string>Accept</string><list><string>application/json</string></list></entry>'
+    if token:
+        headers += f'<entry><string>Authorization</string><list><string>Bearer {escape(token)}</string></list></entry>'
+    headers += '</headers>'
+    parameter = "".join(f'<entry><string>{escape(n)}</string><list><string>{escape(w)}</string></list></entry>' for n, w in params.items())
+    return (
+        '<properties class="com.mirth.connect.connectors.http.HttpDispatcherProperties" version="{v}"><pluginProperties/>'
+        + _dest_props(True) +
+        f'<host>{escape(adresse)}</host><useProxyServer>false</useProxyServer><proxyAddress></proxyAddress><proxyPort></proxyPort>'
+        f'<method>post</method>{headers}<parameters class="linked-hash-map">{parameter}</parameters><useHeadersVariable>false</useHeadersVariable>'
+        '<headersVariable></headersVariable><useParametersVariable>false</useParametersVariable><parametersVariable></parametersVariable>'
+        '<responseXmlBody>false</responseXmlBody><responseParseMultipart>false</responseParseMultipart>'
+        '<responseIncludeMetadata>false</responseIncludeMetadata>'
+        '<responseBinaryMimeTypes>application/.*(?&lt;!json|xml)$|image/.*|video/.*|audio/.*</responseBinaryMimeTypes>'
+        '<responseBinaryMimeTypesRegex>true</responseBinaryMimeTypesRegex><multipart>false</multipart>'
+        '<useAuthentication>false</useAuthentication><authenticationType>Basic</authenticationType>'
+        '<usePreemptiveAuthentication>true</usePreemptiveAuthentication><username></username><password></password>'
+        '<content>${message.encodedData}</content><contentType>application/octet-stream</contentType><dataTypeBinary>true</dataTypeBinary>'
+        '<charset>UTF-8</charset><socketTimeout>600000</socketTimeout></properties>')
+
+
+def poll_xml(sekunden: int) -> str:
+    """Abfrageintervall einer Quelle (Database Reader, File Reader), mindestens 5 Sekunden."""
+    return (
+        '<pollConnectorProperties version="{v}"><pollingType>INTERVAL</pollingType><pollOnStart>true</pollOnStart>'
+        f'<pollingFrequency>{max(5, int(sekunden)) * 1000}</pollingFrequency><pollingHour>0</pollingHour><pollingMinute>0</pollingMinute>'
+        '<cronJobs/><pollConnectorPropertiesAdvanced><weekly>true</weekly><inactiveDays><boolean>false</boolean><boolean>false</boolean>'
+        '<boolean>false</boolean><boolean>false</boolean><boolean>false</boolean><boolean>false</boolean><boolean>false</boolean>'
+        '<boolean>false</boolean></inactiveDays><dayOfMonth>1</dayOfMonth><allDay>true</allDay><startingHour>8</startingHour>'
+        '<startingMinute>0</startingMinute><endingHour>17</endingHour><endingMinute>0</endingMinute></pollConnectorPropertiesAdvanced>'
+        '</pollConnectorProperties>')
 
 
 def datei_props(ordner: str, muster: str = "${stellwerkDateiname}", inhalt: str = "${message.encodedData}") -> str:
@@ -215,7 +329,7 @@ def channel_xml(k: dict, listener_user: str, listener_password: str, version: st
     dests = []
     if ziel:
         dests.append(_connector(1, "FHIR-Ziel", fhir_ziel_props(k), "HTTP Sender",
-                                _filter("Freigegebene Bundles", "return $('stellwerkStatus') == 'ok';")))
+                                _filter("Freigegebene Bundles", "return $('stellwerkStatus') == 'ok';"), ablehnung_skript(k, ablage)))
     regel = "return $('stellwerkStatus') != 'ok';" if ziel else "return true;"
     dests.append(_connector(len(dests) + 1, "Prüfablage" if ziel else "Ablage", datei_props(ablage), "File Writer",
                             _filter("Bundles mit Prüfpunkten" if ziel else "Alle Bundles", regel)))
@@ -300,6 +414,28 @@ class BridgeLink:
             self._call("POST", "/channels", xml.encode("utf-8"))
         self._call("POST", f"/channels/{cid}/_deploy?returnErrors=true")
         return "aktualisiert" if vorhanden else "angelegt"
+
+    def pruner_aktiv(self) -> bool | None:
+        """Ist der Data Pruner von BridgeLink eingeschaltet? None: nicht lesbar (gegen 26.9.0 geprüft)."""
+        try:
+            self.login()
+            _, body = self._call("GET", "/extensions/Data%20Pruner/properties")
+            for p in (json.loads(body or b"{}").get("properties") or {}).get("property") or []:
+                if p.get("@name") == "enabled":
+                    return str(p.get("$")).lower() == "true"
+        except (BridgeLinkError, ValueError, AttributeError):
+            pass
+        return None
+
+    def pruner_hinweis(self) -> str:
+        """Hinweistext, wenn die Aufbewahrungsfristen der Kanäle ins Leere laufen. Leer, wenn alles in Ordnung ist."""
+        aktiv = self.pruner_aktiv()
+        if aktiv:
+            return ""
+        was = ("Der Data Pruner von BridgeLink ist ausgeschaltet." if aktiv is False else
+               "Ob der Data Pruner von BridgeLink eingeschaltet ist, ließ sich nicht lesen.")
+        return (f"{was} Die Aufbewahrungsfristen des Kanals greifen erst, wenn er läuft; bis dahin sammeln sich Zeilen und Bundles "
+                "(Patientendaten) im Nachrichtenspeicher. In BridgeLink unter Einstellungen den Data Pruner einschalten.")
 
     def status(self, cid: str) -> dict:
         """Zustand je Verbindung aus dem Dashboard von BridgeLink (gegen 26.9.0 geprüft).

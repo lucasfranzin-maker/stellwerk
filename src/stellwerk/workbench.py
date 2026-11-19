@@ -21,7 +21,8 @@ from .textrepair import decode_bytes
 _ID = re.compile(r"^[a-z0-9]{6,32}$")
 _META = ("patient_id", "encounter_id", "doc_id", "doc_date", "author", "title", "family", "given", "birth_date")
 KANAL_VORGABE = {"intervall": 60, "neu_spalte": "", "neu_art": "zahl", "vollabfrage": False, "start": "", "max_zeilen": 5000,
-                 "zustellen": [], "jdbc_url": ""}
+                 "zustellen": [], "jdbc_url": "", "eingang_ordner": "", "dateimuster": "*", "eingang_art": "ordner", "sftp_host": "",
+                 "sftp_benutzer": "", "sftp_passwort_env": "", "sftp_known_hosts": ""}
 VORGABE = {"art": "datei", "vorlage": "", "meta": {}, "aliase": {}, "db": "", "abfrage": "", "dokument": 0, "ablage": "",
            "modus": "dokument", "felder": {"regeln": {}, "abgelehnt": [], "status": ""}, "kanal": KANAL_VORGABE}
 
@@ -48,7 +49,28 @@ def clean_kanal(k) -> dict:
     jdbc = str(k["jdbc_url"] or "").strip()
     if jdbc and (not jdbc.startswith("jdbc:") or "password=" in jdbc.lower() or "pwd=" in jdbc.lower()):
         raise ApiError(400, "Die JDBC-Adresse muss mit jdbc: beginnen und darf kein Passwort enthalten.")
-    return {"intervall": intervall, "neu_spalte": spalte, "neu_art": k["neu_art"], "vollabfrage": bool(k["vollabfrage"]), "start": start,
+    ordner = str(k["eingang_ordner"] or "").strip()
+    if ordner and (not (ordner.startswith("/") or re.match(r"^[A-Za-z]:[\\/]|^\\\\", ordner)) or ".." in re.split(r"[\\/]", ordner)
+                   or re.search(r"[\x00-\x1f]|\$\{", ordner)):
+        raise ApiError(400, "Der Eingangsordner ist ein absoluter Pfad auf dem BridgeLink-Server, ohne „..“ und ohne Platzhalter.")
+    muster = str(k["dateimuster"] or "*").strip()
+    if len(muster) > 100 or re.search(r"[\\/\x00-\x1f]|\$\{", muster):
+        raise ApiError(400, "Das Dateimuster ist ein Name mit * und ? (zum Beispiel *.pdf), ohne Pfad.")
+    art = str(k["eingang_art"] or "ordner")
+    if art not in ("ordner", "sftp"):
+        raise ApiError(400, "Der Eingang ist ein Ordner oder ein SFTP-Server.")
+    sftp = {f: str(k[f] or "").strip() for f in ("sftp_host", "sftp_benutzer", "sftp_passwort_env", "sftp_known_hosts")}
+    if sftp["sftp_host"] and not re.match(r"^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:\d{1,5})?$", sftp["sftp_host"]):
+        raise ApiError(400, "Der SFTP-Server ist ein Rechnername, optional mit :Port.")
+    if sftp["sftp_benutzer"] and re.search(r"[\x00-\x1f${}]", sftp["sftp_benutzer"]):
+        raise ApiError(400, "Der SFTP-Benutzer enthält unzulässige Zeichen.")
+    if sftp["sftp_passwort_env"] and not re.match(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$", sftp["sftp_passwort_env"]):
+        raise ApiError(400, "Das Passwort steht nicht in der Datei, sondern in einer Umgebungsvariable; hier nur deren Name eintragen.")
+    if sftp["sftp_known_hosts"] and re.search(r"[\x00-\x1f]|\$\{", sftp["sftp_known_hosts"]):
+        raise ApiError(400, "Der Pfad zu known_hosts enthält unzulässige Zeichen.")
+    if art == "sftp" and ordner and not ordner.startswith("/"):
+        raise ApiError(400, "Der Ordner auf dem SFTP-Server ist ein absoluter Pfad mit /.")
+    return {"intervall": intervall, "eingang_ordner": ordner, "eingang_art": art, **sftp, "dateimuster": muster, "neu_spalte": spalte, "neu_art": k["neu_art"], "vollabfrage": bool(k["vollabfrage"]), "start": start,
             "max_zeilen": max_zeilen, "zustellen": [c for c in dict.fromkeys(k["zustellen"] or []) if c in ("TEXTWERT", "GESCHLECHT", "DATUM")],
             "jdbc_url": jdbc}
 
@@ -107,9 +129,18 @@ class Workspace:
             raise ApiError(400, "modus muss dokument oder felder sein.")
         fd = t["felder"] or {}
         keys = {k for k, _, _ in fieldmap.ZIELE}
+        def regel(r: dict) -> dict:
+            out = {k: str(v)[:200] for k, v in r.items() if k in ("ziel", "loinc", "anzeige", "fuer", "einheit")}
+            if r.get("ziel") == "obs.code":
+                codes = r.get("codes") if isinstance(r.get("codes"), dict) else {}
+                if len(codes) > 2000:
+                    raise ApiError(400, "Die Codetabelle hat höchstens 2000 Einträge.")
+                out["codes"] = {str(k).strip()[:120]: {f: str(v.get(f) or "").strip()[:200] for f in ("loinc", "anzeige", "einheit")}
+                                for k, v in codes.items() if str(k).strip() and isinstance(v, dict)}
+            return out
+
         t["felder"] = {
-            "regeln": {str(c)[:120]: {k: str(v)[:200] for k, v in r.items() if k in ("ziel", "loinc", "anzeige", "fuer", "einheit")}
-                       for c, r in (fd.get("regeln") or {}).items() if isinstance(r, dict) and r.get("ziel") in keys},
+            "regeln": {str(c)[:120]: regel(r) for c, r in (fd.get("regeln") or {}).items() if isinstance(r, dict) and r.get("ziel") in keys},
             "abgelehnt": [str(c)[:120] for c in fd.get("abgelehnt") or []],
             "status": str(fd.get("status") or "")}
         t["kanal"] = clean_kanal(t["kanal"])
@@ -314,6 +345,40 @@ class Workspace:
         except OSError as exc:
             raise ApiError(400, f"Ablage fehlgeschlagen: {exc}") from exc
         return {"datei": str(target / name)}
+
+
+def check_db_target(cfg: dict, db: str, verwalten: bool, anmeldung: bool) -> None:
+    """Darf diese Datenbankadresse eingetragen oder benutzt werden?
+
+    Der Dienst verbindet sich mit dem Passwort aus seiner Umgebung. Eine Adresse, die auf einen fremden Rechner zeigt,
+    würde ihm dieses Passwort schicken, und der Dienst ließe sich als Sprungbrett ins Netz benutzen. Deshalb:
+    Mit quellen.erlaubte_hosts gilt die Liste für alle. Ohne Liste dürfen bei eingeschalteter Anmeldung nur Nutzer
+    mit der Rolle „verwalten“ eine Datenbank im Netz eintragen. SQLite-Dateien sind davon nicht betroffen.
+    """
+    from .sqlsource import SqlError, connection_target
+    if not db:
+        return
+    try:
+        host, port, umleitend, sonstige = connection_target(db)
+    except SqlError as exc:
+        raise ApiError(400, str(exc)) from exc
+    if db.startswith("sqlite:"):
+        return
+    erlaubt = sorted({str(h).strip().lower() for h in ((cfg.get("quellen") or {}).get("erlaubte_hosts") or []) if str(h).strip()})
+    wo = host or "(kein Rechnername in der Adresse)"
+    if erlaubt:
+        if umleitend:
+            raise ApiError(403, f"Die Datenbankadresse enthält Parameter, die das Ziel der Verbindung ändern ({', '.join(umleitend)}). "
+                                "Mit quellen.erlaubte_hosts ist das nicht zulässig; Rechner und Port gehören vor den Schrägstrich.")
+        if host not in erlaubt and f"{host}:{port}" not in erlaubt:
+            raise ApiError(403, f"Die Datenbank auf {wo} ist nicht freigegeben. Freigegeben sind: {', '.join(erlaubt)} "
+                                "(quellen.erlaubte_hosts in der Konfiguration).")
+        if sonstige and anmeldung and not verwalten:
+            raise ApiError(403, f"Die Datenbankadresse enthält Parameter, die nur die Rolle „verwalten“ setzen darf ({', '.join(sonstige)}).")
+        return
+    if anmeldung and not verwalten:
+        raise ApiError(403, f"Die Datenbank auf {wo} ist nicht freigegeben. Jemand mit der Rolle „verwalten“ muss die Adresse eintragen, "
+                            "oder der Rechner wird in der Konfiguration unter quellen.erlaubte_hosts freigegeben.")
 
 
 def discover(ws: Workspace, cfg: dict, db: str, entscheidungen: dict | None) -> dict:

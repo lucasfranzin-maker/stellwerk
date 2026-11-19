@@ -1,6 +1,6 @@
 # Anforderungen: Stand und Reihenfolge
 
-Stand 14.11.2026, Version 0.2. „Getestet“ heißt: automatische Tests mit erfundenen Daten in diesem Repo.
+Stand 15.11.2026, Version 0.3. „Getestet“ heißt: automatische Tests mit erfundenen Daten in diesem Repo.
 
 | Anforderung | Stand | Was es gibt | Was fehlt |
 |---|---|---|---|
@@ -9,21 +9,21 @@ Stand 14.11.2026, Version 0.2. „Getestet“ heißt: automatische Tests mit erf
 | Zugriff über MCP bzw. abschirmende Zwischenschicht | offen | – | siehe unten |
 | On-Premise oder Cloud | weitgehend | Python-Paket, Dockerfile und Compose (ohne Root, schreibgeschützt), Konfiguration über Umgebungsvariablen, SQLite oder PostgreSQL | Image hier nicht gebaut (keine Registry erreichbar); PostgreSQL nur als Quelle für den BridgeLink-Kanal getestet, nicht als Datenbank des Dienstes; Helm-Chart für Kubernetes |
 | Zeitgemäßer Stack | teilweise | FastAPI, SQLAlchemy 2, Alembic-Migrationen, uvicorn | React-Oberfläche (entschieden) |
-| Härtung | teilweise | nur lesende SQL-Abfragen, Pfadprüfung, externes LLM gesperrt, Dienst bindet an localhost, Sicherheits-Header (CSP, nosniff, frame-ancestors), Größenlimit, keine Passwörter in Datenbankadressen, Audit-Protokoll, Container ohne Root | Anmeldung und Rechte, TLS-Leitfaden, CSP ohne `unsafe-inline` (kommt mit React), Abhängigkeitsprüfung in CI |
-| Nutzerverwaltung | offen | – | OIDC/AD, Rollen, Sitzungen (entschieden) |
+| Härtung | weitgehend | nur lesende SQL-Abfragen, Pfadprüfung, externes LLM gesperrt, ohne Anmeldung nur auf localhost, Sicherheits-Header (CSP, nosniff, frame-ancestors, HSTS), Größenlimit, keine Passwörter in Datenbankadressen, Freigabeliste für Datenbankrechner, Schutz vor fremden Anfragen (CSRF), https direkt am Dienst, Audit-Protokoll mit Nutzernamen, Container ohne Root | CSP ohne `unsafe-inline` (kommt mit React), Abhängigkeitsprüfung in CI, Anmeldung für den MLLP-Empfang gibt es nicht (Protokoll) |
+| Nutzerverwaltung | erledigt (OIDC) | Anmeldung über OpenID Connect (Authorization Code, PKCE, RS256), Rollen `lesen`, `bearbeiten`, `verwalten` aus Gruppen, Sitzungen mit Ablauf, Abmelden auch beim Identitätsdienst, Dienst-Token für Kommunikationsserver, `stellwerk anmeldung`; gegen Keycloak 26.8.2 im Browser getestet, siehe [anmeldung.md](anmeldung.md) | Test gegen AD FS, Entra ID und das AD eines Hauses; Back-Channel-Logout; Rechte je Projekt |
 | Routing über BridgeLink | erledigt | Kanal wird von Stellwerk angelegt und bereitgestellt; Routing nach Status (FHIR-Ziel mit Warteschlange oder Prüfablage); Zustand per CLI und `/api/bridgelink/status`; Senden aus der Workbench; gegen BridgeLink 26.9.0 getestet | TLS am Kanal-Eingang (BridgeLink-Listener kann es nicht); Zustand in der Oberfläche |
-| Übergabe an den Kommunikationsserver | weitgehend (BridgeLink) | Übergabepaket je Aufgabe: Abfrage, Zuordnung (CSV und JSON), Regeln, erfundene Testfälle mit erwartetem Bundle, echte Zeilen nur auf Wunsch; `stellwerk vergleichen`; siehe [uebergabe.md](uebergabe.md). **Fertiger BridgeLink-Kanal je Feld-Mapping-Schnittstelle** (`stellwerk schnittstelle`, Workbench): liest die Datenbank, nur neue Zeilen, baut Bundles nach den Regeln des Pakets, Warteschlange, Prüfablage, abgewiesene Zeilen mit Grund; gegen BridgeLink 26.9.0 mit SQLite und PostgreSQL getestet, siehe [bridgelink.md](bridgelink.md) | Kanal für Dokument-Schnittstellen (braucht Anmeldung am Dienst, siehe Härtung); SQL Server, Oracle, MySQL gegen eine echte Datenbank testen; Cloverleaf-Export (braucht ein Beispiel aus einer Site); Eingänge für Ordner/Share, SFTP und FHIR; Laborwerte in Zeilenform |
-| Monitoring, Customizing, Alerting | begonnen | Laufprotokoll je Lauf (Workbench, HTTP, MLLP) ohne Patientendaten, `/healthz`, `/readyz` | Kennzahlen je Schnittstelle, Oberfläche, Schwellen, Benachrichtigung |
+| Übergabe an den Kommunikationsserver | weitgehend (BridgeLink) | Übergabepaket je Aufgabe: Abfrage, Zuordnung (CSV und JSON), Regeln, erfundene Testfälle mit erwartetem Bundle, echte Zeilen nur auf Wunsch; `stellwerk vergleichen`; siehe [uebergabe.md](uebergabe.md). **Fertiger BridgeLink-Kanal je Feld-Mapping-Schnittstelle (breit und Zeilenform mit Codetabelle) und je Dokument-Aufgabe (Ordner oder SFTP → Stellwerk → CDR)** (`stellwerk schnittstelle`, Workbench): liest die Datenbank, nur neue Zeilen, baut Bundles nach den Regeln des Pakets, Warteschlange, Prüfablage, abgewiesene Zeilen mit Grund; gegen BridgeLink 26.9.0 mit SQLite und PostgreSQL getestet, siehe [bridgelink.md](bridgelink.md) | SQL Server, Oracle, MySQL gegen eine echte Datenbank testen; Cloverleaf-Export (braucht ein Beispiel aus einer Site); Zeilenform mit anderen Datenbanken als SQLite testen |
+| Monitoring, Customizing, Alerting | begonnen | Laufprotokoll je Lauf (Workbench, HTTP, MLLP) ohne Patientendaten, `/healthz`, `/readyz`; Ansicht „Betrieb“ in der Workbench (`/api/kennzahlen`): Läufe, Status, Median und p95 der Dauer, häufigste Befunde je Kanal und Quelle für 24 Stunden bis 30 Tage | Läufe der BridgeLink-Kanäle (sie laufen in BridgeLink und stehen dort im Dashboard); Schwellen und Benachrichtigung; Verlauf als Grafik |
 
 ## Reihenfolge
 
 1. ~~**Unterbau:** FastAPI, Datenbank (Projekte, Aufgaben, Läufe, Audit), Docker.~~ Erledigt in 0.2, siehe [betrieb.md](betrieb.md).
 
 Vorgezogen (Entscheidung vom 14.11.2026): **Übergabe an den Kommunikationsserver.**
-a) ~~Übergabepaket je Aufgabe, neutral~~ (erledigt), b) ~~BridgeLink-Kanal je Schnittstelle daraus erzeugen~~ (erledigt für Feld-Mapping aus Datenbanken; Dokument-Schnittstellen erst nach der Anmeldung),
-c) Eingänge für Ordner/Share, SFTP und FHIR, d) Cloverleaf-Export, sobald ein Beispiel vorliegt. Danach weiter mit:
+a) ~~Übergabepaket je Aufgabe, neutral~~ (erledigt), b) ~~BridgeLink-Kanal je Schnittstelle daraus erzeugen~~ (erledigt für Feld-Mapping aus Datenbanken und für Dokumente aus einem Ordner),
+c) ~~Eingänge Ordner und SFTP~~ (erledigt über den Dokument-Kanal), FHIR-Eingang (offen, Anforderung unklar), d) Cloverleaf-Export, sobald ein Beispiel vorliegt. Danach weiter mit:
 
-2. **Anmeldung und Härtung:** OIDC, Rollen, Sitzungen, Sicherheits-Header, Audit-Protokoll. Vorher darf der Dienst nicht ins Netz.
+2. ~~**Anmeldung und Härtung:** OIDC, Rollen, Sitzungen, Sicherheits-Header, Audit-Protokoll.~~ Erledigt in 0.3, siehe [anmeldung.md](anmeldung.md).
 3. **React-Oberfläche** im bestehenden Erscheinungsbild, zuerst Workbench und Erschließung.
 4. **Monitoring und Alerting** auf der Laufhistorie.
 5. **LLM-Schleuse.**
@@ -44,5 +44,6 @@ MCP passt zusätzlich in die andere Richtung: Stellwerk als MCP-Server, damit ei
 ## Offene Entscheidungen und Risiken
 
 - **Patientendaten an ein externes Modell** (`llm.extern.daten: alles`): braucht AV-Vertrag, Freigabe des Datenschutzes und eine Regelung zum Ort der Verarbeitung. Technisch ist es ein Schalter; rechtlich nicht.
-- **OIDC/AD:** lässt sich hier nur gegen einen nachgebauten Identitätsdienst testen, nicht gegen das AD eines Hauses.
+- **OIDC/AD:** getestet gegen einen nachgebauten Identitätsdienst und gegen Keycloak, nicht gegen AD FS, Entra ID oder das AD eines Hauses.
+  Vor dem ersten Einsatz dort mit `stellwerk anmeldung` und einer Probeanmeldung je Rolle prüfen.
 - **React:** die gebauten Dateien müssen im Paket liegen, damit die Installation im Krankenhaus ohne Node und Internet geht.
